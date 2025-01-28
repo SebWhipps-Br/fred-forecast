@@ -4,12 +4,11 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import mean_squared_error
 
 
-def estimate_spectral_density(xt, eigenvalues, eigenvectors, n, theta_points):
+def estimate_spectral_density(eigenvalues, eigenvectors, n, theta_points):
     """
     Estimate Σ_χ(θ) for a set of frequencies theta_points using pre-computed PCA results.
 
     Parameters:
-    - xt: Time series data of shape (T, n), potentially not used if PCA results are all you need
     - eigenvalues: Array of eigenvalues from PCA, sorted by magnitude in descending order
     - eigenvectors: Matrix of eigenvectors from PCA where columns correspond to eigenvalues
     - n: Number of variables
@@ -76,7 +75,7 @@ def forecast_common_components(xt, h, q, n, T):
 
 
     theta_points = np.linspace(-np.pi, np.pi, 100)  # Discretise frequency domain
-    sigma_chi_theta = estimate_spectral_density(xt, eigenvalues,eigenvectors, n, theta_points)
+    sigma_chi_theta = estimate_spectral_density(eigenvalues,eigenvectors, n, theta_points)
 
     Gamma_chi_h = compute_autocovariance(sigma_chi_theta, theta_points, h)
     Gamma_chi_0 = compute_autocovariance(sigma_chi_theta, theta_points, 0)
