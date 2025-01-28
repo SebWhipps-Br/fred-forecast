@@ -52,7 +52,7 @@ def compute_autocovariance(sigma_chi_theta, theta_points, h):
     return gamma_chi_h / len(theta_points)
 
 
-def forecast_common_components(xt, h, q, n, T):
+def forecast_common_components(xt, h, q, n, T, num_theta_points=100):
     """
     Forecast the common components χT+h|T using the formula:
     χ_T+h|T = Γχ(h) Q (Q' Γχ(0) Q)^(-1) Q' xT
@@ -73,8 +73,7 @@ def forecast_common_components(xt, h, q, n, T):
     eigenvalues = pca.explained_variance_
     eigenvectors = pca.components_.T
 
-
-    theta_points = np.linspace(-np.pi, np.pi, 100)  # Discretise frequency domain
+    theta_points = np.linspace(-np.pi, np.pi, num_theta_points)  # Discretise frequency domain - num can be increased at time cost
     sigma_chi_theta = estimate_spectral_density(eigenvalues,eigenvectors, n, theta_points)
 
     Gamma_chi_h = compute_autocovariance(sigma_chi_theta, theta_points, h)
@@ -82,11 +81,13 @@ def forecast_common_components(xt, h, q, n, T):
 
     x_last = xt[-1]
     #print('Q_hat:', Q_hat.shape, 'Gamma_chi_0', Gamma_chi_0.shape, 'Q_hat.T', Q_hat.T.shape)
-    try:
-        inv_term = np.linalg.inv(Q_hat @ Gamma_chi_0 @ Q_hat.T)
-    except np.linalg.LinAlgError:
-        #print("Matrix is not invertible. Using pseudo-inverse.")
-        inv_term = np.linalg.pinv(Q_hat @ Gamma_chi_0 @ Q_hat.T)
+    pre_inv_term = Q_hat @ Gamma_chi_0 @ Q_hat.T
+
+    if np.linalg.cond(pre_inv_term) < 1 / np.finfo(pre_inv_term.dtype).eps:
+        inv_term = np.linalg.inv(pre_inv_term)
+    else:
+        inv_term = np.linalg.pinv(pre_inv_term)
+
 
     #print('Gamma_chi_h:', Gamma_chi_h.shape, 'Q_hat', Q_hat.shape, 'inv_term', inv_term.shape, 'Q_hat.T', Q_hat.T.shape,'x_last', x_last.shape)
 
