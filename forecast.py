@@ -67,6 +67,7 @@ def forecast_common_components(xt, h, q, n, T, num_theta_points=100):
     Returns:
     - chi_forecast: np.array, h-step-ahead forecast of common components
     """
+
     pca = PCA(n_components=q)
     F_hat = pca.fit_transform(xt)  # The estimated factors
     Q_hat = pca.components_ # The loadings
@@ -83,7 +84,7 @@ def forecast_common_components(xt, h, q, n, T, num_theta_points=100):
     #print('Q_hat:', Q_hat.shape, 'Gamma_chi_0', Gamma_chi_0.shape, 'Q_hat.T', Q_hat.T.shape)
     pre_inv_term = Q_hat @ Gamma_chi_0 @ Q_hat.T
 
-    if np.linalg.cond(pre_inv_term) < 1 / np.finfo(pre_inv_term.dtype).eps:
+    if np.linalg.cond(pre_inv_term) < 1 / np.finfo(pre_inv_term.dtype).eps: # the matrix is well-conditioned for standard inversion
         inv_term = np.linalg.inv(pre_inv_term)
     else:
         inv_term = np.linalg.pinv(pre_inv_term)
