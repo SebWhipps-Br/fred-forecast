@@ -36,6 +36,28 @@ def calculate_bic_aic(X, max_factors):
     return bic_scores, aic_scores
 
 
+def er_test(eigenvalues):
+    ratios = [eigenvalues[i] / eigenvalues[i + 1] for i in range(len(eigenvalues) - 1)]
+
+    # Looks for the largest drop in the ratio
+    drops = [ratios[i] / ratios[i - 1] if i > 0 else 0 for i in range(1, len(ratios))]
+    max_drop_index = np.argmax(drops)     # Finds where the maximum drop is
+
+    # The number of factors is where we see the largest drop
+    return max_drop_index + 1  # +1 because we started counting from 0
+
+
+def gr_test(eigenvalues):
+    # Computes growth rates
+    growth_rates = [eigenvalues[i] / eigenvalues[i + 1] for i in range(len(eigenvalues) - 1)]
+
+    # Computes the ratio of growth rates
+    gr_ratios = [growth_rates[i] / growth_rates[i - 1] if i > 0 else 0 for i in range(1, len(growth_rates))]
+    # Find where the GR ratio drops significantly
+    max_gr_drop_index = np.argmin(gr_ratios) # Arbitrary threshold
+
+    return max_gr_drop_index + 1
+
 def forecast_common_components(xt, q):
     """
     Perform static forecasting of common components using PCA.
@@ -50,6 +72,10 @@ def forecast_common_components(xt, q):
     pca = PCA(n_components=q).fit(xt)
     x_last = xt[-1]
     factor_scores = pca.transform(x_last.reshape(1, -1))[0]
+    er = er_test(pca.explained_variance_)
+    print('er', er)
+    for a in pca.explained_variance_:
+        print(round(a, 8))
     return pca.inverse_transform(factor_scores.reshape(1, -1)).flatten()
 
 def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
