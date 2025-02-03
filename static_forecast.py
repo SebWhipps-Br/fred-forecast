@@ -58,25 +58,41 @@ def gr_test(eigenvalues):
 
     return max_gr_drop_index + 1
 
-def forecast_common_components(xt, q):
+
+def forecast_common_components(xt, q, h=1):
     """
     Perform static forecasting of common components using PCA.
 
     Parameters:
-    - xt: np.array of shape (T, n), observed data
+    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
     - q: int, number of factors to consider
-
+    - h: int, The lags
     Returns:
-    - forecast: np.array, forecast of common components
+    - forecast: np.array, forecast of common components for the last time step
     """
-    pca = PCA(n_components=q).fit(xt)
-    x_last = xt[-1]
-    factor_scores = pca.transform(x_last.reshape(1, -1))[0]
-    er = er_test(pca.explained_variance_)
-    print('er', er)
-    for a in pca.explained_variance_:
-        print(round(a, 8))
-    return pca.inverse_transform(factor_scores.reshape(1, -1)).flatten()
+    pca = PCA(n_components=q)
+    factors = pca.fit_transform(xt)
+
+    common_components = pca.inverse_transform(factors)
+
+    # P^(nT) - normalized eigenvectors corresponding to the q largest eigenvalues
+    P = pca.components_.T  # n x q
+    Γ_χ = np.cov(common_components.T) # The covariance matrix of the common component
+
+    # Computes lagged covariance matrix
+    Γ_χ_h = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if T > h:
+                Γ_χ_h[i, j] = np.cov(common_components[:-h, i], common_components[h:, j])[0, 1]
+            else:
+                Γ_χ_h[i, j] = 0
+
+    # Forecast calculation
+    inv_term = np.linalg.inv(P.T @ Γ_χ @ P)
+    forecast = (Γ_χ_h @ P @ inv_term) @ P.T @ xt[-1]
+    return forecast
+
 
 def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
     plt.figure(figsize=(10, 6))
@@ -94,18 +110,25 @@ def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
     plt.show()
 
 
+def cumulative_variance_explained(explained_variance_ratio, k):
+    return np.sum(explained_variance_ratio[:k]) * 100
+
+
+
+
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
 X = df.values
 
 T, n = X.shape
+print("T:", T, "n:", n)
 
 # Split data for training and testing
 h = 1  # Forecasting one step ahead
 X_train, X_actual = X[:-h], X[-h]
 
 # Calculate BIC and AIC
-max_factors = 20
+max_factors = 15
 bic_scores, aic_scores = calculate_bic_aic(X_train, max_factors)
 
 # TODO: Find optimal number of factors
@@ -120,6 +143,8 @@ q = optimal_q_bic
 # Forecast
 forecast = forecast_common_components(X_train, q)
 
+print("forecast.shape:",forecast.shape)
+print("X_actual:", X_actual.shape)
 # Evaluate performance
 mse = mean_squared_error(X_actual, forecast)
 print(f'Overall Mean Squared Error: {mse}')
