@@ -162,8 +162,9 @@ def forecast_common_components(xt, q, h=1):
     """
     pca = PCA(n_components=q)
     factors = pca.fit_transform(xt)
-
     common_components = pca.inverse_transform(factors)
+    print('factors.shape:', factors.shape)
+    print('common_components.shape:', common_components.shape)
 
     # P^(nT) - normalized eigenvectors corresponding to the q largest eigenvalues
     P = pca.components_.T  # n x q
@@ -204,7 +205,6 @@ def static_factor_direct_forecast(xt, h, q):
 
     pca = PCA(n_components=q)
 
-    # V_x is P in our notation, which are the loadings or eigenvectors
     factors = pca.fit_transform(xt_centered)
 
     common_components = pca.inverse_transform(factors)
@@ -340,7 +340,7 @@ h = 1  # Forecasting one step ahead
 X_train, X_actual = X[:-h], X[-h]
 
 # Calculate BIC and AIC
-max_factors = 50
+max_factors = 10
 bic_scores, aic_scores = calculate_bic_aic(X_train, max_factors)
 
 optimal_q_bic = np.argmin(bic_scores) + 1
@@ -371,7 +371,8 @@ for i, col in enumerate(df.columns):
     mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
     print(f'MSE for variable {col}: {mse_i}')
 
-# plot_forecast_vs_actual(X_train, forecast, common, 10, h=h)
+plot_forecast_vs_actual(X_train, forecast, common, 10, h=h)
+multi_plot_forecast_vs_actual(X_train, forecast, common, h=h )
 
 forecast2, common2 = static_factor_direct_forecast(X_train, h, q)
 print("Forecast for h steps ahead:", forecast)
@@ -385,4 +386,5 @@ for i, col in enumerate(df.columns):
     mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
     print(f'MSE for variable {col}: {mse_i}')
 
+plot_forecast_vs_actual(X_train, forecast2, common2, 10, h=h)
 multi_plot_forecast_vs_actual(X_train, forecast2, common2, h=h )
