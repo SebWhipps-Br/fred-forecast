@@ -184,6 +184,55 @@ def forecast_common_components(xt, q, h=1):
     return forecast, common_components
 
 
+def static_factor_direct_forecast(xt, h, q):
+    """
+    Implement direct forecasting from a static factor model.
+
+    Parameters:
+    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
+    - h: int, forecast horizon
+    - q: int, number of factors to consider
+
+    Returns:
+    - forecast: np.array of shape (n,), the h-step-ahead forecast for each variable
+    """
+    T, n = xt.shape
+    # Compute the mean of the series
+    x_mean = np.mean(xt, axis=0)
+    print(x_mean)
+    xt_centered = xt
+
+    pca = PCA(n_components=q)
+
+    # V_x is P in our notation, which are the loadings or eigenvectors
+    factors = pca.fit_transform(xt_centered)
+
+    common_components = pca.inverse_transform(factors)
+
+    V_x = pca.components_.T  # Now this is n x q
+
+    # Compute Γ_x(-h) - h lags autocovariance matrix
+    Γ_x_h = np.zeros((n, n))
+    for i in range(n):
+        for j in range(n):
+            if T > h:
+                Γ_x_h[i, j] = np.cov(xt_centered[:-h, i], xt_centered[h:, j])[0, 1]
+            else:
+                Γ_x_h[i, j] = 0
+
+    # Computes V_x0 Γ_x0 V_x
+    V_x0_Γ_x0_V_x = V_x.T @ Γ_x_h @ V_x
+    V_x0_inv = np.linalg.inv(V_x0_Γ_x0_V_x)
+
+    # Forecast calculation
+    B_OLS = Γ_x_h @ V_x @ V_x0_inv @ V_x.T
+    alpha_OLS = x_mean  # Since we center the data, this is essentially zero or mean if not centered
+
+    forecast = alpha_OLS + B_OLS @ (xt[-1] - x_mean)
+
+    return forecast, common_components
+
+
 def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, max_factors + 1), bic_scores, label='BIC', marker='o')
@@ -200,7 +249,7 @@ def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
     plt.show()
 
 
-def plot_forecast_vs_actual(xt, forecast, common_components, h=1):
+def multi_plot_forecast_vs_actual(xt, forecast, common_components, h=1):
     """
     Plot the forecast value against the actual value for each variable in the time series.
 
@@ -216,7 +265,7 @@ def plot_forecast_vs_actual(xt, forecast, common_components, h=1):
 
     graph_number = 10
     fig, axs = plt.subplots(graph_number, 1, figsize=(10, 5 * graph_number), sharex=True)
-    if n == 1:
+    if graph_number == 1:
         axs = [axs]  # Makes sure axs is iterable even if only one subplot
 
     for i, ax in enumerate(axs):
@@ -236,6 +285,39 @@ def plot_forecast_vs_actual(xt, forecast, common_components, h=1):
         ax.legend()
 
     plt.xlabel('Time')
+    plt.suptitle('Forecast vs Actual Values with Common Components for Each Variable')
+    plt.tight_layout()
+    plt.show()
+
+def plot_forecast_vs_actual(xt, forecast, common_components, chosen_component, h=1):
+    """
+    Plot the forecast value against the actual value for each variable in the time series.
+
+    Parameters:
+    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
+    - forecast: np.array, forecast of common components for the last time step
+    - h: int, The number of steps ahead for forecasting (default is 1)
+    Returns:
+    - None, but displays a plot
+    """
+    T, n = xt.shape
+    actual_last = xt[-1]
+    i = chosen_component
+    plt.figure(figsize=(100, 30))
+
+    # Plot the actual data
+    plt.plot(range(T), xt[:, i], label='Actual', color='blue', alpha=0.7)
+    # Plot the common components
+    plt.plot(range(T), common_components[:, i], label='Common Component', color='green', alpha=0.7)
+
+    # Plot the last actual point
+    plt.scatter(T - 1, actual_last[i], color='blue', s=50, zorder=5, label='Last Actual' if i == 0 else "")
+
+    # Plot the forecast
+    plt.scatter(T, forecast[i], color='red', label='Forecast' if i == 0 else "", s=50, zorder=5)
+    plt.legend()
+    plt.xlabel('Time')
+    plt.ylabel(f'Variable {i + 1}')
     plt.suptitle('Forecast vs Actual Values with Common Components for Each Variable')
     plt.tight_layout()
     plt.show()
@@ -289,4 +371,18 @@ for i, col in enumerate(df.columns):
     mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
     print(f'MSE for variable {col}: {mse_i}')
 
-plot_forecast_vs_actual(X_train, forecast, common, h=h)
+# plot_forecast_vs_actual(X_train, forecast, common, 10, h=h)
+
+forecast2, common2 = static_factor_direct_forecast(X_train, h, q)
+print("Forecast for h steps ahead:", forecast)
+
+# Evaluate performance
+mse = mean_squared_error(X_actual, forecast)
+print(f'Overall Mean Squared Error: {mse}')
+
+# Individual MSE for variables
+for i, col in enumerate(df.columns):
+    mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
+    print(f'MSE for variable {col}: {mse_i}')
+
+multi_plot_forecast_vs_actual(X_train, forecast2, common2, h=h )
