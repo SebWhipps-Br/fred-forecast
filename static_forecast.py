@@ -149,42 +149,6 @@ def gr_test(eigenvalues):
     return max_gr_drop_index + 1
 
 
-def forecast_common_components(xt, q, h=1):
-    """
-    Perform static forecasting of common components using PCA.
-
-    Parameters:
-    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - q: int, number of factors to consider
-    - h: int, The lags
-    Returns:
-    - forecast: np.array, forecast of common components for the last time step
-    """
-    pca = PCA(n_components=q)
-    factors = pca.fit_transform(xt)
-    common_components = pca.inverse_transform(factors)
-    print('factors.shape:', factors.shape)
-    print('common_components.shape:', common_components.shape)
-
-    # P^(nT) - normalized eigenvectors corresponding to the q largest eigenvalues
-    P = pca.components_.T  # n x q
-    Γ_χ = np.cov(common_components.T) # The covariance matrix of the common component
-
-    # Computes lagged covariance matrix
-    Γ_χ_h = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            if T > h:
-                Γ_χ_h[i, j] = np.cov(common_components[:-h, i], common_components[h:, j])[0, 1]
-            else:
-                Γ_χ_h[i, j] = 0
-
-    # Forecast calculation
-    inv_term = np.linalg.inv(P.T @ Γ_χ @ P)
-    forecast = (Γ_χ_h @ P @ inv_term) @ P.T @ xt[-1]
-    return forecast, common_components
-
-
 def static_factor_direct_forecast(xt, h, q):
     """
     Implement direct forecasting from a static factor model.
@@ -200,8 +164,7 @@ def static_factor_direct_forecast(xt, h, q):
     T, n = xt.shape
     # Compute the mean of the series
     x_mean = np.mean(xt, axis=0)
-    print(x_mean)
-    xt_centered = xt
+    xt_centered = xt - x_mean
 
     pca = PCA(n_components=q)
 
@@ -229,11 +192,9 @@ def static_factor_direct_forecast(xt, h, q):
     alpha_OLS = x_mean  # Since we center the data, this is essentially zero or mean if not centered
 
     forecast = alpha_OLS + B_OLS @ (xt[-1] - x_mean)
-
     return forecast, common_components
 
-
-def plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
+def plot_bic_aic(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
     plt.figure(figsize=(10, 6))
     plt.plot(range(1, max_factors + 1), bic_scores, label='BIC', marker='o')
     plt.plot(range(1, max_factors + 1), aic_scores, label='AIC', marker='s')
@@ -352,16 +313,15 @@ print("aic_1:", aic1, "aic_2:", aic2, "aic_3:", aic3)
 print("bic_1", bic1, "bic_2:", bic2, "bic_3:", bic3)
 
 
-plot(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic)
+plot_bic_aic(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic)
 
 # Use BIC for forecasting
 q = optimal_q_bic
 
-# Forecast
-forecast, common = forecast_common_components(X_train, q)
 
-print("forecast.shape:",forecast.shape)
-print("X_actual:", X_actual.shape)
+forecast, common = static_factor_direct_forecast(X_train, h, q)
+# print("Forecast for h steps ahead:", forecast2)
+
 # Evaluate performance
 mse = mean_squared_error(X_actual, forecast)
 print(f'Overall Mean Squared Error: {mse}')
@@ -372,19 +332,4 @@ for i, col in enumerate(df.columns):
     print(f'MSE for variable {col}: {mse_i}')
 
 plot_forecast_vs_actual(X_train, forecast, common, 10, h=h)
-multi_plot_forecast_vs_actual(X_train, forecast, common, h=h )
-
-forecast2, common2 = static_factor_direct_forecast(X_train, h, q)
-print("Forecast for h steps ahead:", forecast)
-
-# Evaluate performance
-mse = mean_squared_error(X_actual, forecast)
-print(f'Overall Mean Squared Error: {mse}')
-
-# Individual MSE for variables
-for i, col in enumerate(df.columns):
-    mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
-    print(f'MSE for variable {col}: {mse_i}')
-
-plot_forecast_vs_actual(X_train, forecast2, common2, 10, h=h)
-multi_plot_forecast_vs_actual(X_train, forecast2, common2, h=h )
+multi_plot_forecast_vs_actual(X_train, forecast, common, h=h)
