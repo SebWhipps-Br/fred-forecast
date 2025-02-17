@@ -5,126 +5,51 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import mean_squared_error
 
 
-def calculate_bic_aic(X, max_factors):
+def bai_ng_criteria(X, max_factors):
     """
-    Calculate BIC and AIC for different numbers of factors.
+    Compute Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models with PCA.
 
     Parameters:
-    - X: np.array of shape (T, n), observed data
-    - max_factors: int, maximum number of factors to consider
+    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
+    - max_factors: Integer, maximum number of factors to consider
 
     Returns:
-    - bic_scores: list of BIC scores
-    - aic_scores: list of AIC scores
+    - Tuple containing lists of IC_p1, IC_p2, IC_p3 values for each number of factors from 1 to max_factors
     """
     T, n = X.shape
-    bic_scores, aic_scores = [], []
+    IC_p1_values, IC_p2_values, IC_p3_values = [], [], []
 
-    for q in range(1, max_factors + 1):
-        pca = PCA(n_components=q)
-        X_reconstructed = pca.fit_transform(X)
-        mse = mean_squared_error(X, pca.inverse_transform(X_reconstructed))
+    for k in range(1, max_factors + 1):
+        # Perform PCA to get F and V
+        pca = PCA(n_components=k)
+        F = pca.fit_transform(X)  # Common factors
+        V = pca.components_.T  # Factor loadings
 
-        # AIC and BIC calculation
-        k = q * n  # Number of parameters
-        aic = T * n * np.log(mse) + 2 * k
-        bic = T * n * np.log(mse) + k * np.log(T * n)
+        # Compute residuals
+        residuals = X - np.dot(F, V.T)
 
-        aic_scores.append(aic)
-        bic_scores.append(bic)
+        # Sum of squared residuals
+        ln_V_k_F = np.log(np.sum(residuals ** 2) / (n * T))
 
-    return bic_scores, aic_scores
+        # Compute the criteria
+        term1 = np.log((n * T)/(n + T))
+        term2 = (n + T)/(n * T)
+        C_nT = min(n**0.5, T**0.5)
+        term3 = np.log(C_nT**2) / C_nT**2
 
+        # IC_p1
+        IC_p1 = ln_V_k_F + k * term1 * term2
+        IC_p1_values.append(IC_p1)
 
-def bai_ng_aic(X, max_factors):
-    """
-    Calculate Bai & Ng's AIC1, AIC2, AIC3 for selecting the number of factors.
+        # IC_p2
+        IC_p2 = ln_V_k_F + k * term2
+        IC_p2_values.append(IC_p2)
 
-    Parameters:
-    - X: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - max_factors: int, maximum number of factors to consider
+        # IC_p3
+        IC_p3 = ln_V_k_F + k * term3
+        IC_p3_values.append(IC_p3)
 
-    Returns:
-    - aic1_scores: list of AIC1 scores
-    - aic2_scores: list of AIC2 scores
-    - aic3_scores: list of AIC3 scores
-    """
-    T, n = X.shape
-    aic1_scores = []
-    aic2_scores = []
-    aic3_scores = []
-
-    for r in range(1, max_factors + 1):
-        # Fit PCA with r components
-        pca = PCA(n_components=r)
-        X_hat = pca.fit_transform(X)
-        X_reconstructed = pca.inverse_transform(X_hat)
-
-        # Calculate residuals
-        residuals = X - X_reconstructed
-        sigma_e_squared = np.mean(residuals ** 2)  # Residual variance
-
-        # Calculate penalty terms
-        k1 = (n + T) / (n * T)
-        k2 = k1 * np.log(min(n, T))
-        k3 = k1 * np.log(n * T / (n + T))
-
-        # Calculate AIC scores
-        aic1 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k1
-        aic2 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k2
-        aic3 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k3
-
-        aic1_scores.append(aic1)
-        aic2_scores.append(aic2)
-        aic3_scores.append(aic3)
-
-    return aic1_scores, aic2_scores, aic3_scores
-
-
-def bai_ng_bic(X, max_factors):
-    """
-    Calculate Bai & Ng's BIC1, BIC2, BIC3 for selecting the number of factors.
-
-    Parameters:
-    - X: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - max_factors: int, maximum number of factors to consider
-
-    Returns:
-    - bic1_scores: list of BIC1 scores
-    - bic2_scores: list of BIC2 scores
-    - bic3_scores: list of BIC3 scores
-    """
-    T, n = X.shape
-    bic1_scores = []
-    bic2_scores = []
-    bic3_scores = []
-
-    for r in range(1, max_factors + 1):
-        # Fit PCA with r components
-        pca = PCA(n_components=r)
-        X_hat = pca.fit_transform(X)
-        X_reconstructed = pca.inverse_transform(X_hat)
-
-        # Calculate residuals
-        residuals = X - X_reconstructed
-        sigma_e_squared = np.mean(residuals ** 2)  # Residual variance
-
-        # Calculate penalty terms
-        k1 = np.log((n * T) / (n + T))
-        k2 = k1 * ((n + T) / (n * T))
-        k3 = k2 * np.log(min(n, T))
-
-        # Calculate BIC scores
-        bic1 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k1
-        bic2 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k2
-        bic3 = np.log(sigma_e_squared / (n * T)) + (r * (n + T - r) / (n * T)) * k3
-
-        bic1_scores.append(bic1)
-        bic2_scores.append(bic2)
-        bic3_scores.append(bic3)
-
-    return bic1_scores, bic2_scores, bic3_scores
-
+    return IC_p1_values, IC_p2_values, IC_p3_values
 
 def er_test(eigenvalues):
     ratios = [eigenvalues[i] / eigenvalues[i + 1] for i in range(len(eigenvalues) - 1)]
@@ -194,21 +119,38 @@ def static_factor_direct_forecast(xt, h, q):
     forecast = alpha_OLS + B_OLS @ (xt[-1] - x_mean)
     return forecast, common_components
 
-def plot_bic_aic(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic):
+
+def plot_bai_ng_criteria(X, max_factors):
+    """
+    Compute and plot Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models.
+
+    Parameters:
+    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
+    - max_factors: Integer, maximum number of factors to consider
+
+    Returns:
+    - None, but displays a plot of the criteria vs. number of factors
+    """
+    IC_p1_values, IC_p2_values, IC_p3_values = bai_ng_criteria(X, max_factors)
+
+    # Number of factors considered
+    factors = list(range(1, max_factors + 1))
+
+    # Plotting
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, max_factors + 1), bic_scores, label='BIC', marker='o')
-    plt.plot(range(1, max_factors + 1), aic_scores, label='AIC', marker='s')
+
+    plt.plot(factors, IC_p1_values, label='IC_p1', marker='o')
+    plt.plot(factors, IC_p2_values, label='IC_p2', marker='s')
+    plt.plot(factors, IC_p3_values, label='IC_p3', marker='^')
+
     plt.xlabel('Number of Factors')
-    plt.ylabel('Criterion Value')
-    plt.title('BIC and AIC for Different Numbers of Factors')
-    plt.legend()
-    # Mark minimum points
-    plt.plot(optimal_q_bic, bic_scores[optimal_q_bic - 1], 'ro', markersize=10, label=f'Min BIC at {optimal_q_bic}')
-    plt.plot(optimal_q_aic, aic_scores[optimal_q_aic - 1], 'gs', markersize=10, label=f'Min AIC at {optimal_q_aic}')
+    plt.ylabel('Information Criteria')
+    plt.title('Bai & Ng Information Criteria vs Number of Factors')
     plt.legend()
     plt.grid(True)
-    plt.show()
+    plt.xticks(factors)
 
+    plt.show()
 
 def multi_plot_forecast_vs_actual(xt, forecast, common_components, h=1):
     """
@@ -283,8 +225,6 @@ def plot_forecast_vs_actual(xt, forecast, common_components, chosen_component, h
     plt.tight_layout()
     plt.show()
 
-def cumulative_variance_explained(explained_variance_ratio, k):
-    return np.sum(explained_variance_ratio[:k]) * 100
 
 
 
@@ -301,22 +241,15 @@ h = 1  # Forecasting one step ahead
 X_train, X_actual = X[:-h], X[-h]
 
 # Calculate BIC and AIC
-max_factors = 10
-bic_scores, aic_scores = calculate_bic_aic(X_train, max_factors)
-
-optimal_q_bic = np.argmin(bic_scores) + 1
-optimal_q_aic = np.argmin(aic_scores) + 1
-
-aic1, aic2, aic3 = bai_ng_aic(X_train, max_factors)
-bic1, bic2, bic3 = bai_ng_bic(X_train, max_factors)
-print("aic_1:", aic1, "aic_2:", aic2, "aic_3:", aic3)
-print("bic_1", bic1, "bic_2:", bic2, "bic_3:", bic3)
+max_factors = 20
 
 
-plot_bic_aic(bic_scores, aic_scores, optimal_q_bic, optimal_q_aic)
+
+icp1, icp2, icp3 = bai_ng_criteria(X_train, max_factors)
+plot_bai_ng_criteria(X, max_factors)
 
 # Use BIC for forecasting
-q = optimal_q_bic
+q = max_factors
 
 
 forecast, common = static_factor_direct_forecast(X_train, h, q)
