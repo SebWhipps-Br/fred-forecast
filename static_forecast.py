@@ -1,9 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from sklearn.metrics import mean_squared_error
-
+import plotly.graph_objects as go
 
 def bai_ng_criteria(X, max_factors):
     """
@@ -73,6 +72,44 @@ def gr_test(eigenvalues):
 
     return max_gr_drop_index + 1
 
+def plot_bai_ng_criteria(X, max_factors):
+    """
+    Compute and plot Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models.
+
+    Parameters:
+    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
+    - max_factors: Integer, maximum number of factors to consider
+
+    Returns:
+    - None, but displays a plot of the criteria vs. number of factors
+    """
+    IC_p1_values, IC_p2_values, IC_p3_values = bai_ng_criteria(X, max_factors)
+
+    # Number of factors considered
+    factors = list(range(1, max_factors + 1))
+
+    # Plotting
+    plt.figure(figsize=(10, 6))
+
+    plt.plot(factors, IC_p1_values, label='IC_p1', marker='o')
+    plt.plot(factors, IC_p2_values, label='IC_p2', marker='s')
+    plt.plot(factors, IC_p3_values, label='IC_p3', marker='^')
+
+    plt.xlabel('Number of Factors')
+    plt.ylabel('Information Criteria')
+    plt.title('Bai & Ng Information Criteria vs Number of Factors')
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(factors)
+
+    plt.show()
+
+def autocovariance(X, horizon):
+    if horizon > T:
+        return np.zeros((n, n))
+    X_lagged = X[:-horizon]
+    X_future = X[horizon:]
+    return np.cov(X_lagged.T, X_future.T)[0:n, n:]
 
 def static_factor_direct_forecast(xt, h, q):
     """
@@ -106,21 +143,9 @@ def static_factor_direct_forecast(xt, h, q):
 
     for horizon in range(1, h + 1):  # Start from 1 to h
         # Compute Γ_x(-horizon) - for each horizon
-        Γ_x_h = np.zeros((n, n))
-        for i in range(n):
-            for j in range(n):
-                if T > horizon:
-                    Γ_x_h[i, j] = np.cov(xt_centered[:-horizon, i], xt_centered[horizon:, j])[0, 1]
-                else:
-                    Γ_x_h[i, j] = 0
+        Γ_x_h = autocovariance(xt_centered, horizon)
 
-        # Compute V_x0 Γ_x0 V_x for this horizon
-        V_x0_Γ_x0_V_x = V_x.T @ Γ_x_h @ V_x
-        try:
-            V_x0_inv = np.linalg.inv(V_x0_Γ_x0_V_x)
-        except np.linalg.LinAlgError:
-            # Handle case where matrix is singular or near singular
-            V_x0_inv = np.linalg.pinv(V_x0_Γ_x0_V_x)
+        V_x0_inv = np.linalg.pinv(V_x.T @ Γ_x_h @ V_x) # pinv instead of inv for where matrix is near singular
 
         # Forecast calculation for this horizon
         B_OLS = Γ_x_h @ V_x @ V_x0_inv @ V_x.T
@@ -134,37 +159,43 @@ def static_factor_direct_forecast(xt, h, q):
     return forecasts, common_components
 
 
-def plot_bai_ng_criteria(X, max_factors):
+
+def new_plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
-    Compute and plot Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models.
+    Plot the actual data against the common components, including predictions within the same time frame.
 
     Parameters:
-    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
-    - max_factors: Integer, maximum number of factors to consider
-
-    Returns:
-    - None, but displays a plot of the criteria vs. number of factors
+    - actual: np.array of shape (T, n), observed data where T is time steps and n is number of variables
+    - common_components: np.array of shape (T-h, n), common components of the data, ending h steps before the end of actual
+    - forecast: np.array of shape (h, n), forecasted values for h steps within the actual data time frame
+    - chosen_component: int, the variable to plot (0-indexed)
+    - dates: pd.Index or pd.DatetimeIndex, the dates for plotting
+    - h: int, The number of steps ahead for forecasting within the actual data
     """
-    IC_p1_values, IC_p2_values, IC_p3_values = bai_ng_criteria(X, max_factors)
+    i = chosen_component
+    actual_data = actual[:, i]
+    common_data = common_components[:, i]
+    forecast_values = forecast[:, i]
+    plot_dates = dates
 
-    # Number of factors considered
-    factors = list(range(1, max_factors + 1))
-
-    # Plotting
-    plt.figure(figsize=(10, 6))
-
-    plt.plot(factors, IC_p1_values, label='IC_p1', marker='o')
-    plt.plot(factors, IC_p2_values, label='IC_p2', marker='s')
-    plt.plot(factors, IC_p3_values, label='IC_p3', marker='^')
-
-    plt.xlabel('Number of Factors')
-    plt.ylabel('Information Criteria')
-    plt.title('Bai & Ng Information Criteria vs Number of Factors')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(factors)
-
-    plt.show()
+    #novel method
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=plot_dates, y=actual_data, mode='lines', name='Actual', line=dict(color='blue')))
+    fig.add_trace(
+        go.Scatter(x=plot_dates[:-h], y=common_data, mode='lines', name='Common Component', line=dict(color='green')))
+    fig.add_trace(go.Scatter(x=plot_dates[-h:], y=forecast_values, mode='lines', name='Forecast',
+                             line=dict(color='red', dash='dash')))
+    fig.update_layout(
+        title_text=f"Actual vs Common Components with Forecast for Variable {i + 1}",
+        xaxis_title="Date",
+        yaxis_title=f"Variable {i + 1}",
+        autosize=False,
+        width=1000,
+        height=600,
+        margin=dict(l=50, r=50, b=100, t=100, pad=4),
+        paper_bgcolor="LightSteelBlue",
+    )
+    fig.show()
 
 def plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
@@ -179,11 +210,11 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     - h: int, The number of steps ahead for forecasting within the actual data
     """
     i = chosen_component
-
-    # Use all data for actual, but only up to h steps before the end for common components
     actual_data = actual[:, i]
     common_data = common_components[:, i]
+    forecast_values = forecast[:, i]
     plot_dates = dates
+
 
     # Create a new figure with a large size for better visibility
     plt.figure(figsize=(30, 20))
@@ -195,7 +226,6 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     plt.plot(plot_dates[:-h], common_data, label='Common Component', color='green', alpha=0.7)
 
     # Plot the forecast
-    forecast_values = forecast[:, i]  # Extract values for the chosen component
     if h <= 1:
         plt.scatter(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
     else:
@@ -242,6 +272,11 @@ icp1, icp2, icp3 = bai_ng_criteria(X_train, max_factors)
 # Use BIC for forecasting
 q = max_factors
 
+# checks
+if h <= 0:
+    raise ValueError("Forecast horizon 'h' must be positive.")
+if q > min(n, T):
+    raise ValueError("Number of factors 'q' cannot exceed min(n, T).")
 
 forecast, common = static_factor_direct_forecast(X_train, h, q)
 print("Forecast for h steps ahead:", forecast.shape)
@@ -256,3 +291,4 @@ for i, col in enumerate(df.columns):
     print(f'MSE for variable {col}: {mse_i}')
 '''
 plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
+new_plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
