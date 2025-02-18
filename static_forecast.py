@@ -200,23 +200,24 @@ def multi_plot_forecast_vs_actual(xt, forecast, common_components, h=1):
     plt.tight_layout()
     plt.show()
 
-def plot_actual_vs_common_components(actual, common_components, chosen_component, dates, h):
+def plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
-    Plot the actual data against the common components, including predictions for the same time frame.
+    Plot the actual data against the common components, including predictions within the same time frame.
 
     Parameters:
     - actual: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - common_components: np.array of shape (T, n), common components of the data
+    - common_components: np.array of shape (T-h, n), common components of the data, ending h steps before the end of actual
+    - forecast: np.array of shape (h, n), forecasted values for h steps within the actual data time frame
     - chosen_component: int, the variable to plot (0-indexed)
     - dates: pd.Index or pd.DatetimeIndex, the dates for plotting
-    - h: int, The number of steps ahead for forecasting
+    - h: int, The number of steps ahead for forecasting within the actual data
     """
     i = chosen_component
 
-    # Only use data up to h steps before the end for consistency
-    actual_data = actual[:-h, i]
-    common_data = common_components[:-h, i]
-    plot_dates = dates[:-h]
+    # Use all data for actual, but only up to h steps before the end for common components
+    actual_data = actual[:, i]
+    common_data = common_components[:, i]
+    plot_dates = dates
 
     # Create a new figure with a large size for better visibility
     plt.figure(figsize=(30, 20))
@@ -224,13 +225,25 @@ def plot_actual_vs_common_components(actual, common_components, chosen_component
     # Plot the actual data
     plt.plot(plot_dates, actual_data, label='Actual', color='blue', alpha=0.7)
 
-    # Plot the common components
+    # Plot the common components (up to h steps before the end of actual data)
     plt.plot(plot_dates[:-h], common_data, label='Common Component', color='green', alpha=0.7)
+
+    # Plot the forecast
+    if forecast.ndim == 1:  # If forecast is for one step ahead, adjust to 2D
+        forecast = forecast.reshape(1, -1)
+        print("here")
+        forecast_values = forecast[:, i]  # Extract values for the chosen component
+        print(forecast_values)
+        plt.scatter(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
+    else:
+        forecast_values = forecast[:, i]  # Extract values for the chosen component
+        plt.plot(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
+
 
     # Labeling
     plt.xlabel('Date')
     plt.ylabel(f'Variable {i + 1}')
-    plt.title(f'Actual Data vs Common Components for Variable {i + 1}')
+    plt.title(f'Actual Data vs Common Components with Forecast for Variable {i + 1}')
 
     # Adjust the legend
     plt.legend()
@@ -260,7 +273,7 @@ T, n = X.shape
 print("T:", T, "n:", n)
 
 # Split data for training and testing
-h = 12  # Forecasting one step ahead
+h = 1  # Forecasting one step ahead
 X_train, X_actual = X[:-h], X[-h]
 
 # Calculate BIC and AIC
@@ -287,5 +300,6 @@ for i, col in enumerate(df.columns):
     mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
     print(f'MSE for variable {col}: {mse_i}')
 
-plot_actual_vs_common_components(X, common, chosen_component=10, dates=dates, h=h)
-multi_plot_forecast_vs_actual(X_train, forecast, common, h=h)
+plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
+
+#multi_plot_forecast_vs_actual(X_train, forecast, common, h=h)
