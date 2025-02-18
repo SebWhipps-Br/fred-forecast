@@ -84,7 +84,7 @@ def static_factor_direct_forecast(xt, h, q):
     - q: int, number of factors to consider
 
     Returns:
-    - forecast: np.array of shape (n,), the h-step-ahead forecast for each variable
+    - forecast: np.array of shape (h, n), the h-step-ahead forecasts for each variable, directly computed
     - common_components: np.array, common components of the data
     """
     T, n = xt.shape
@@ -101,31 +101,37 @@ def static_factor_direct_forecast(xt, h, q):
     # Factor loadings
     V_x = pca.components_.T  # Now this is n x q
 
-    # Compute Γ_x(-h) - h lags autocovariance matrix
-    Γ_x_h = np.zeros((n, n))
-    for i in range(n):
-        for j in range(n):
-            if T > h:
-                Γ_x_h[i, j] = np.cov(xt_centered[:-h, i], xt_centered[h:, j])[0, 1]
-            else:
-                Γ_x_h[i, j] = 0  # If T <= h, we can't estimate this, so we set it to 0
+    # Initialize forecasts for each horizon
+    forecasts = np.zeros((h, n))
 
-    # Compute V_x0 Γ_x0 V_x
-    V_x0_Γ_x0_V_x = V_x.T @ Γ_x_h @ V_x
-    try:
-        V_x0_inv = np.linalg.inv(V_x0_Γ_x0_V_x)
-    except np.linalg.LinAlgError:
-        # Handle case where matrix is singular or near singular
-        V_x0_inv = np.linalg.pinv(V_x0_Γ_x0_V_x)
+    for horizon in range(1, h + 1):  # Start from 1 to h
+        # Compute Γ_x(-horizon) - for each horizon
+        Γ_x_h = np.zeros((n, n))
+        for i in range(n):
+            for j in range(n):
+                if T > horizon:
+                    Γ_x_h[i, j] = np.cov(xt_centered[:-horizon, i], xt_centered[horizon:, j])[0, 1]
+                else:
+                    Γ_x_h[i, j] = 0
 
-    # Forecast calculation
-    B_OLS = Γ_x_h @ V_x @ V_x0_inv @ V_x.T
-    alpha_OLS = x_mean  # Since we center the data, this is essentially zero or mean if not centered
+        # Compute V_x0 Γ_x0 V_x for this horizon
+        V_x0_Γ_x0_V_x = V_x.T @ Γ_x_h @ V_x
+        try:
+            V_x0_inv = np.linalg.inv(V_x0_Γ_x0_V_x)
+        except np.linalg.LinAlgError:
+            # Handle case where matrix is singular or near singular
+            V_x0_inv = np.linalg.pinv(V_x0_Γ_x0_V_x)
 
-    # For h > 1, we use the last available observation for prediction
-    forecast = alpha_OLS + B_OLS @ (xt[-1] - x_mean)
+        # Forecast calculation for this horizon
+        B_OLS = Γ_x_h @ V_x @ V_x0_inv @ V_x.T
 
-    return forecast, common_components
+        # Direct forecasting for each horizon
+        forecasts[horizon - 1] = x_mean + B_OLS @ (xt[-1] - x_mean)
+
+    if forecasts.ndim == 1:  # If forecast is for one step ahead, adjust to 2D
+        forecasts = forecast.reshape(1, -1)
+
+    return forecasts, common_components
 
 
 def plot_bai_ng_criteria(X, max_factors):
@@ -189,16 +195,11 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     plt.plot(plot_dates[:-h], common_data, label='Common Component', color='green', alpha=0.7)
 
     # Plot the forecast
-    if forecast.ndim == 1:  # If forecast is for one step ahead, adjust to 2D
-        forecast = forecast.reshape(1, -1)
-        print("here")
-        forecast_values = forecast[:, i]  # Extract values for the chosen component
-        print(forecast_values)
+    forecast_values = forecast[:, i]  # Extract values for the chosen component
+    if h <= 1:
         plt.scatter(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
     else:
-        forecast_values = forecast[:, i]  # Extract values for the chosen component
-        plt.plot(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
-
+        plt.plot(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=0.5)
 
     # Labeling
     plt.xlabel('Date')
@@ -218,26 +219,20 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
 X = df.values
+dates = df.index # Extract the index which contains the dates
 
-# Extract the index which contains the dates
-dates = df.index
-print(dates)
-# If you want the dates as a numpy array or list for further processing:
-dates_array = dates.to_numpy()  # Numpy array
-dates_list = dates.tolist()     # Python list
 
-# Print or use dates as needed
-print(dates_list[:5])  # Example: print first 5 dates
+
 
 T, n = X.shape
 print("T:", T, "n:", n)
 
 # Split data for training and testing
-h = 1  # Forecasting one step ahead
+h = 12  # Forecasting one step ahead
 X_train, X_actual = X[:-h], X[-h]
 
 # Calculate BIC and AIC
-max_factors = 20
+max_factors = 3
 
 
 
@@ -250,7 +245,7 @@ q = max_factors
 
 forecast, common = static_factor_direct_forecast(X_train, h, q)
 print("Forecast for h steps ahead:", forecast.shape)
-
+'''
 # Evaluate performance
 mse = mean_squared_error(X_actual, forecast)
 print(f'Overall Mean Squared Error: {mse}')
@@ -259,5 +254,5 @@ print(f'Overall Mean Squared Error: {mse}')
 for i, col in enumerate(df.columns):
     mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
     print(f'MSE for variable {col}: {mse_i}')
-
+'''
 plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
