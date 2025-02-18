@@ -160,46 +160,6 @@ def plot_bai_ng_criteria(X, max_factors):
 
     plt.show()
 
-def multi_plot_forecast_vs_actual(xt, forecast, common_components, h=1):
-    """
-    Plot the forecast value against the actual value for each variable in the time series.
-
-    Parameters:
-    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - forecast: np.array, forecast of common components for the last time step
-    - h: int, The number of steps ahead for forecasting (default is 1)    Returns:
-    - None, but displays a plot
-    """
-    T, n = xt.shape
-
-    actual_last = xt[-1]
-
-    graph_number = 10
-    fig, axs = plt.subplots(graph_number, 1, figsize=(10, 5 * graph_number), sharex=True)
-    if graph_number == 1:
-        axs = [axs]  # Makes sure axs is iterable even if only one subplot
-
-    for i, ax in enumerate(axs):
-        # Plot the actual data
-        ax.plot(range(T), xt[:, i], label='Actual', color='blue', alpha=0.7)
-
-        # Plot the common components
-        ax.plot(range(T), common_components[:, i], label='Common Component', color='green', alpha=0.7)
-
-        # Plot the last actual point
-        ax.scatter(T - 1, actual_last[i], color='blue', s=50, zorder=5, label='Last Actual' if i == 0 else "")
-
-        # Plot the forecast
-        ax.scatter(T, forecast[i], color='red', label='Forecast' if i == 0 else "", s=50, zorder=5)
-
-        ax.set_ylabel(f'Variable {i + 1}')
-        ax.legend()
-
-    plt.xlabel('Time')
-    plt.suptitle('Forecast vs Actual Values with Common Components for Each Variable')
-    plt.tight_layout()
-    plt.show()
-
 def plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
     Plot the actual data against the common components, including predictions within the same time frame.
@@ -301,5 +261,3 @@ for i, col in enumerate(df.columns):
     print(f'MSE for variable {col}: {mse_i}')
 
 plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
-
-#multi_plot_forecast_vs_actual(X_train, forecast, common, h=h)
