@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from sklearn.decomposition import PCA
 import plotly.graph_objects as go
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
+
 
 def bai_ng_criteria(X, max_factors):
     """
@@ -136,13 +138,14 @@ def static_factor_direct_forecast(xt, h, q):
     common_components = pca.inverse_transform(factors)
 
     # Factor loadings
-    V_x = pca.components_.T  # Now this is n x q
+    V_x = pca.components_.T  # n x q
 
     # Initialize forecasts for each horizon
     forecasts = np.zeros((h, n))
 
+    # Compute Γ_x_h - for each horizon
     for horizon in range(1, h + 1):  # Start from 1 to h
-        # Compute Γ_x(-horizon) - for each horizon
+
         Γ_x_h = autocovariance(xt_centered, horizon)
 
         V_x0_inv = np.linalg.pinv(V_x.T @ Γ_x_h @ V_x) # pinv instead of inv for where matrix is near singular
@@ -246,31 +249,30 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     plt.tight_layout()
     plt.show()
 
+def performance(true_values, predicted_values):
+    print("true_values.shape:", true_values.shape)
+    print("predicted_values.shape:", predicted_values.shape)
+    mse = mean_squared_error(true_values, predicted_values)
+    mae = mean_absolute_error(true_values, predicted_values)
+    mape = mean_absolute_percentage_error(true_values, predicted_values)
+    print("mse:     ", mse)
+    print("mae:     ", mae)
+    print("mape:   ", mape)
+
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
-X = df.values
-dates = df.index # Extract the index which contains the dates
-
-
+X = df.values # T x n
+dates = df.index
 
 
 T, n = X.shape
 print("T:", T, "n:", n)
 
 # Split data for training and testing
-h = 12  # Forecasting one step ahead
-X_train, X_actual = X[:-h], X[-h]
+h = 12  # Forecasting step(s) ahead
+X_train, X_actual = X[:-h], X[-h:]
 
-# Calculate BIC and AIC
-max_factors = 3
-
-
-
-icp1, icp2, icp3 = bai_ng_criteria(X_train, max_factors)
-# plot_bai_ng_criteria(X, max_factors)
-
-# Use BIC for forecasting
-q = max_factors
+q = 5
 
 # checks
 if h <= 0:
@@ -279,16 +281,8 @@ if q > min(n, T):
     raise ValueError("Number of factors 'q' cannot exceed min(n, T).")
 
 forecast, common = static_factor_direct_forecast(X_train, h, q)
-print("Forecast for h steps ahead:", forecast.shape)
-'''
-# Evaluate performance
-mse = mean_squared_error(X_actual, forecast)
-print(f'Overall Mean Squared Error: {mse}')
 
-# Individual MSE for variables
-for i, col in enumerate(df.columns):
-    mse_i = mean_squared_error([X_actual[i]], [forecast[i]])
-    print(f'MSE for variable {col}: {mse_i}')
-'''
+performance(X_actual, forecast)
+
 plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
 new_plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
