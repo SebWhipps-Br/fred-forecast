@@ -1,121 +1,23 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.decomposition import PCA
 import plotly.graph_objects as go
+from sklearn.decomposition import PCA
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
+from sklearn.preprocessing import StandardScaler
 
-
-def bai_ng_criteria(X, max_factors):
-    """
-    Compute Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models with PCA.
-
-    Parameters:
-    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
-    - max_factors: Integer, maximum number of factors to consider
-
-    Returns:
-    - Tuple containing lists of IC_p1, IC_p2, IC_p3 values for each number of factors from 1 to max_factors
-    """
-    T, n = X.shape
-    IC_p1_values, IC_p2_values, IC_p3_values = [], [], []
-
-    for k in range(1, max_factors + 1):
-        # Perform PCA to get F and V
-        pca = PCA(n_components=k)
-        F = pca.fit_transform(X)  # Common factors
-        V = pca.components_.T  # Factor loadings
-
-        # Compute residuals
-        residuals = X - np.dot(F, V.T)
-
-        # Sum of squared residuals
-        ln_V_k_F = np.log(np.sum(residuals ** 2) / (n * T))
-
-        # Compute the criteria
-        term1 = np.log((n * T)/(n + T))
-        term2 = (n + T)/(n * T)
-        C_nT = min(n**0.5, T**0.5)
-        term3 = np.log(C_nT**2) / C_nT**2
-
-        # IC_p1
-        IC_p1 = ln_V_k_F + k * term1 * term2
-        IC_p1_values.append(IC_p1)
-
-        # IC_p2
-        IC_p2 = ln_V_k_F + k * term2
-        IC_p2_values.append(IC_p2)
-
-        # IC_p3
-        IC_p3 = ln_V_k_F + k * term3
-        IC_p3_values.append(IC_p3)
-
-    return IC_p1_values, IC_p2_values, IC_p3_values
-
-def er_test(eigenvalues):
-    ratios = [eigenvalues[i] / eigenvalues[i + 1] for i in range(len(eigenvalues) - 1)]
-
-    # Looks for the largest drop in the ratio
-    drops = [ratios[i] / ratios[i - 1] if i > 0 else 0 for i in range(1, len(ratios))]
-    max_drop_index = np.argmax(drops)     # Finds where the maximum drop is
-
-    # The number of factors is where we see the largest drop
-    return max_drop_index + 1  # +1 because we started counting from 0
-
-
-def gr_test(eigenvalues):
-    # Computes growth rates
-    growth_rates = [eigenvalues[i] / eigenvalues[i + 1] for i in range(len(eigenvalues) - 1)]
-
-    # Computes the ratio of growth rates
-    gr_ratios = [growth_rates[i] / growth_rates[i - 1] if i > 0 else 0 for i in range(1, len(growth_rates))]
-    # Find where the GR ratio drops significantly
-    max_gr_drop_index = np.argmin(gr_ratios) # Arbitrary threshold
-
-    return max_gr_drop_index + 1
-
-def plot_bai_ng_criteria(X, max_factors):
-    """
-    Compute and plot Bai & Ng Information Criteria (IC_p1, IC_p2, IC_p3) for factor models.
-
-    Parameters:
-    - X: Numpy array of shape (T, N) where T is time periods and N is number of series
-    - max_factors: Integer, maximum number of factors to consider
-
-    Returns:
-    - None, but displays a plot of the criteria vs. number of factors
-    """
-    IC_p1_values, IC_p2_values, IC_p3_values = bai_ng_criteria(X, max_factors)
-
-    # Number of factors considered
-    factors = list(range(1, max_factors + 1))
-
-    # Plotting
-    plt.figure(figsize=(10, 6))
-
-    plt.plot(factors, IC_p1_values, label='IC_p1', marker='o')
-    plt.plot(factors, IC_p2_values, label='IC_p2', marker='s')
-    plt.plot(factors, IC_p3_values, label='IC_p3', marker='^')
-
-    plt.xlabel('Number of Factors')
-    plt.ylabel('Information Criteria')
-    plt.title('Bai & Ng Information Criteria vs Number of Factors')
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(factors)
-
-    plt.show()
 
 def autocovariance(X, horizon):
-    if horizon > T:
+    if horizon > T:  # The case where there is no data to compute the horizon
         return np.zeros((n, n))
     X_lagged = X[:-horizon]
     X_future = X[horizon:]
     return np.cov(X_lagged.T, X_future.T)[0:n, n:]
 
+
 def static_factor_direct_forecast(xt, h, q):
     """
-    Implement direct forecasting from a static factor model for any forecast horizon h.
+    Implements direct forecasting from a static factor model for any forecast horizon h.
 
     Parameters:
     - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
@@ -126,8 +28,6 @@ def static_factor_direct_forecast(xt, h, q):
     - forecast: np.array of shape (h, n), the h-step-ahead forecasts for each variable, directly computed
     - common_components: np.array, common components of the data
     """
-    T, n = xt.shape
-
     # Compute the mean of the series
     x_mean = np.mean(xt, axis=0)
     xt_centered = xt - x_mean
@@ -137,8 +37,8 @@ def static_factor_direct_forecast(xt, h, q):
     factors = pca.fit_transform(xt_centered)
     common_components = pca.inverse_transform(factors)
 
-    # Factor loadings
-    V_x = pca.components_.T  # n x q
+    # Factor loadings or V_x
+    loadings = pca.components_.T  # n x q
 
     # Initialize forecasts for each horizon
     forecasts = np.zeros((h, n))
@@ -148,19 +48,16 @@ def static_factor_direct_forecast(xt, h, q):
 
         Γ_x_h = autocovariance(xt_centered, horizon)
 
-        V_x0_inv = np.linalg.pinv(V_x.T @ Γ_x_h @ V_x) # pinv instead of inv for where matrix is near singular
+        V_x0_inv = np.linalg.pinv(
+            loadings.T @ Γ_x_h @ loadings)  # pinv instead of inv for where matrix is near singular
 
         # Forecast calculation for this horizon
-        B_OLS = Γ_x_h @ V_x @ V_x0_inv @ V_x.T
+        B_OLS = Γ_x_h @ loadings @ V_x0_inv @ loadings.T
 
         # Direct forecasting for each horizon
         forecasts[horizon - 1] = x_mean + B_OLS @ (xt[-1] - x_mean)
 
-    if forecasts.ndim == 1:  # If forecast is for one step ahead, adjust to 2D
-        forecasts = forecast.reshape(1, -1)
-
     return forecasts, common_components
-
 
 
 def new_plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
@@ -181,7 +78,7 @@ def new_plot_actual_vs_common_components(actual, common_components, forecast, ch
     forecast_values = forecast[:, i]
     plot_dates = dates
 
-    #novel method
+    # novel method
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=plot_dates, y=actual_data, mode='lines', name='Actual', line=dict(color='blue')))
     fig.add_trace(
@@ -200,6 +97,7 @@ def new_plot_actual_vs_common_components(actual, common_components, forecast, ch
     )
     fig.show()
 
+
 def plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
     Plot the actual data against the common components, including predictions within the same time frame.
@@ -217,7 +115,6 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     common_data = common_components[:, i]
     forecast_values = forecast[:, i]
     plot_dates = dates
-
 
     # Create a new figure with a large size for better visibility
     plt.figure(figsize=(30, 20))
@@ -249,6 +146,7 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     plt.tight_layout()
     plt.show()
 
+
 def performance(true_values, predicted_values):
     print("true_values.shape:", true_values.shape)
     print("predicted_values.shape:", predicted_values.shape)
@@ -259,20 +157,24 @@ def performance(true_values, predicted_values):
     print("mae:     ", mae)
     print("mape:   ", mape)
 
+
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
-X = df.values # T x n
-dates = df.index
 
+scaler = StandardScaler()
+X = scaler.fit_transform(df)
+
+dates = df.index
 
 T, n = X.shape
 print("T:", T, "n:", n)
 
-# Split data for training and testing
-h = 12  # Forecasting step(s) ahead
-X_train, X_actual = X[:-h], X[-h:]
+q = 7   # The number of factors
+h = 1   # Horizon - Forecasting step(s) ahead
+X_train, X_actual = X[:-h], X[-h:]  # Split data for training and testing
 
-q = 5
+
+
 
 # checks
 if h <= 0:
