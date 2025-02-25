@@ -3,61 +3,94 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tsa.ar_model import AutoReg
 
 
-def autocovariance(X, horizon):
-    if horizon > T:  # The case where there is no data to compute the horizon
-        return np.zeros((n, n))
-    X_lagged = X[:-horizon]
-    X_future = X[horizon:]
-    return np.cov(X_lagged.T, X_future.T)[0:n, n:]
-
-
-def static_factor_direct_forecast(xt, h, q):
+def fit_ar1_baseline_statsmodels(xt, h):
     """
-    Implements direct forecasting from a static factor model for any forecast horizon h.
+    Fit an AR(1) baseline model X_t = D * X_{t-1} + Z_t for each variable using statsmodels,
+    and forecast h steps ahead.
 
     Parameters:
-    - xt: np.array of shape (T, n), observed data where T is time steps and n is number of variables
+    - xt: np.array of shape (T, N), observed data where T is time steps and N is number of variables
     - h: int, forecast horizon
-    - q: int, number of factors to consider
 
     Returns:
-    - forecast: np.array of shape (h, n), the h-step-ahead forecasts for each variable, directly computed
-    - common_components: np.array, common components of the data
+    - forecasts: np.array of shape (h, N), h-step-ahead forecasts for each variable
+    - D: np.array of shape (N,), estimated AR(1) coefficients for each variable
     """
-    # Compute the mean of the series
+    T, N = X.shape
+
     x_mean = np.mean(xt, axis=0)
     xt_centered = xt - x_mean
 
-    # PCA for factor estimation
+    # Initialize arrays
+    forecasts = np.zeros((h, N))
+    D = np.zeros(N)
+
+    # Fit AR(1) model for each variable
+    for i in range(N):
+        # Extract time series for variable i
+        X_i = xt_centered[:, i]
+
+        # Fit AR(1) model with statsmodels
+        # trend='n' - no constant (assumes centered data or Z_t handles intercept)
+        model = AutoReg(X_i, lags=1, trend='n')
+        result = model.fit()
+
+        # Extract AR(1) coefficient (d_i)
+        D[i] = result.params[0]  # First parameter is the AR(1) coefficient
+
+        # Generate h-step-ahead forecasts
+        # Start forecasting from the last observation (T) up to T+h-1
+        forecasts[:, i] = result.predict(start=T, end=T + h - 1, dynamic=True)
+
+    return forecasts, D
+
+
+def static_forecast(X, h, q):
+    """
+    Adapted Stock and Watson static factor model to forecast all variables in X_{t+h} simultaneously.
+
+
+    Parameters:
+    - X: np.array of shape (T, N), data where T is time steps and N is number of variables
+    - h: int, forecast horizon
+    - q: int, number of factors to extract via PCA
+
+    Returns:
+    - X_forecast: np.array of shape (1, N), h-step-ahead forecast for all variables
+    - factors: np.array of shape (T, q), estimated factors
+    """
+    T, N = X.shape
+
+    # Extract factors using PCA
     pca = PCA(n_components=q)
-    factors = pca.fit_transform(xt_centered)
-    common_components = pca.inverse_transform(factors)
+    factors = pca.fit_transform(X)  # Shape: (T, q)
+    common = pca.inverse_transform(factors)
 
-    # Factor loadings or V_x
-    loadings = pca.components_.T  # n x q
+    X_forecast = np.zeros((h, N))  # Initialises forecast array
 
-    # Initialize forecasts for each horizon
-    forecasts = np.zeros((h, n))
+    # Fit regression and forecast for each horizon
+    for horizon in range(1, h + 1):
+        # Prepare regression data for X_{t+horizon}
+        X_target = X[horizon:]  # Shape: (T-horizon, N)
+        if len(X_target) == 0:
+            raise ValueError(f"Not enough data for horizon {horizon}.")
+        factors_t = factors[:-horizon]  # Shape: (T-horizon, q)
 
-    # Compute Γ_x_h - for each horizon
-    for horizon in range(1, h + 1):  # Start from 1 to h
+        # Fit multivariate OLS regression: X_{t+horizon} = F_t * B + E
+        model = LinearRegression()
+        model.fit(factors_t, X_target)
 
-        Γ_x_h = autocovariance(xt_centered, horizon)
+        # Forecast X_{T+horizon} using the last factors
+        last_factors = factors[-1, :].reshape(1, -1)  # Shape: (1, q)
+        X_forecast[horizon - 1] = model.predict(last_factors)  # Shape: (1, N)
 
-        V_x0_inv = np.linalg.pinv(
-            loadings.T @ Γ_x_h @ loadings)  # pinv instead of inv for where matrix is near singular
-
-        # Forecast calculation for this horizon
-        B_OLS = Γ_x_h @ loadings @ V_x0_inv @ loadings.T
-
-        # Direct forecasting for each horizon
-        forecasts[horizon - 1] = x_mean + B_OLS @ (xt[-1] - x_mean)
-
-    return forecasts, common_components
+    return X_forecast, common
 
 
 def new_plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
@@ -169,12 +202,9 @@ dates = df.index
 T, n = X.shape
 print("T:", T, "n:", n)
 
-q = 7   # The number of factors
-h = 1   # Horizon - Forecasting step(s) ahead
+q = 7  # The number of factors
+h = 12  # Horizon - Forecasting step(s) ahead
 X_train, X_actual = X[:-h], X[-h:]  # Split data for training and testing
-
-
-
 
 # checks
 if h <= 0:
@@ -182,9 +212,14 @@ if h <= 0:
 if q > min(n, T):
     raise ValueError("Number of factors 'q' cannot exceed min(n, T).")
 
-forecast, common = static_factor_direct_forecast(X_train, h, q)
+forecast, common = static_forecast(X_train, h, q)
+baseline_forecast, _ = fit_ar1_baseline_statsmodels(X, h)
 
+print("forecast:")
 performance(X_actual, forecast)
+print("baseline_forecast:")
+performance(X_actual, baseline_forecast)
 
-plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
+# new_plot_actual_vs_common_components(X, common, baseline_forecast, chosen_component=10, dates=dates, h=h)
+
 new_plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
