@@ -12,7 +12,7 @@ from statsmodels.tsa.ar_model import AutoReg
 def fit_ar1_baseline_statsmodels(xt, h):
     """
     Fit an AR(1) baseline model X_t = D * X_{t-1} + Z_t for each variable using statsmodels,
-    and forecast h steps ahead.
+    and forecast h steps ahead. Also returns fitted values as a pseudo-common component.
 
     Parameters:
     - xt: np.array of shape (T, N), observed data where T is time steps and N is number of variables
@@ -21,8 +21,9 @@ def fit_ar1_baseline_statsmodels(xt, h):
     Returns:
     - forecasts: np.array of shape (h, N), h-step-ahead forecasts for each variable
     - D: np.array of shape (N,), estimated AR(1) coefficients for each variable
+    - fitted_values: np.array of shape (T, N), fitted values (pseudo-common component)
     """
-    T, N = X.shape
+    T, N = xt.shape  # Corrected from X to xt
 
     x_mean = np.mean(xt, axis=0)
     xt_centered = xt - x_mean
@@ -30,6 +31,7 @@ def fit_ar1_baseline_statsmodels(xt, h):
     # Initialize arrays
     forecasts = np.zeros((h, N))
     D = np.zeros(N)
+    fitted_values = np.zeros((T, N))  # Shape matches xt for fitted values
 
     # Fit AR(1) model for each variable
     for i in range(N):
@@ -37,18 +39,23 @@ def fit_ar1_baseline_statsmodels(xt, h):
         X_i = xt_centered[:, i]
 
         # Fit AR(1) model with statsmodels
-        # trend='n' - no constant (assumes centered data or Z_t handles intercept)
         model = AutoReg(X_i, lags=1, trend='n')
         result = model.fit()
 
         # Extract AR(1) coefficient (d_i)
-        D[i] = result.params[0]  # First parameter is the AR(1) coefficient
+        D[i] = result.params[0]
 
         # Generate h-step-ahead forecasts
-        # Start forecasting from the last observation (T) up to T+h-1
         forecasts[:, i] = result.predict(start=T, end=T + h - 1, dynamic=True)
 
-    return forecasts, D
+        # Compute fitted values (X̂_t = d_i * X_{t-1}) for the training period
+        fitted_values[1:, i] = D[i] * X_i[:-1]  # Starts at t=1 due to lag
+        fitted_values[0, i] = X_i[0]  # First value can’t be fitted, use observed
+
+    # Adjust fitted values to original scale (add mean back)
+    fitted_values += x_mean
+
+    return forecasts, D, fitted_values
 
 
 def static_forecast(X, h, q):
@@ -213,13 +220,15 @@ if q > min(n, T):
     raise ValueError("Number of factors 'q' cannot exceed min(n, T).")
 
 forecast, common = static_forecast(X_train, h, q)
-baseline_forecast, _ = fit_ar1_baseline_statsmodels(X, h)
+baseline_forecast, _, fitted_values = fit_ar1_baseline_statsmodels(X, h)
+print(common.shape)
+print(fitted_values[:-h].shape)
 
 print("forecast:")
 performance(X_actual, forecast)
 print("baseline_forecast:")
 performance(X_actual, baseline_forecast)
 
-# new_plot_actual_vs_common_components(X, common, baseline_forecast, chosen_component=10, dates=dates, h=h)
+new_plot_actual_vs_common_components(X, fitted_values[:-h], baseline_forecast, chosen_component=10, dates=dates, h=h)
 
 new_plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
