@@ -3,10 +3,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Defines the directory path
+# Define the directory paths
 BASE_DIR = Path('EA-MD-HT')
 OUTPUT_DIR = Path('processed_data')
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+'''
+We take 37 macroeconomic indicators that have been collected at a monthly frequency for 8 countries 
+(Austria, Belgium, Germany, Greece, Spain, France, Italy and the Netherlands), forming a matrix-valued 
+(K = 2) time series of dimensions (p1, p2) = (8, 37); the data span the period from 2002-02 to 2023-09 (n = 257).
+'''
 
 
 def get_all_data():
@@ -47,20 +53,16 @@ def reshape_datasets(data_dict, date_col, min_length):
     """Reshapes datasets for consistency"""
     processed_dict = {}
 
-    if date_col:
-        common_dates = set.intersection(*[set(df[date_col]) for df in data_dict.values()])
-        common_dates = sorted(list(common_dates))[:min_length]
-        for country, df in data_dict.items():
-            processed_dict[country] = df[df[date_col].isin(common_dates)].sort_values(date_col)
-    else:
-        for country, df in data_dict.items():
-            processed_dict[country] = df.iloc[:min_length]
+    common_dates = set.intersection(*[set(df[date_col]) for df in data_dict.values()])
+    common_dates = sorted(list(common_dates))[:min_length]
+    for country, df in data_dict.items():
+        processed_dict[country] = df[df[date_col].isin(common_dates)].sort_values(date_col)
 
     return processed_dict
 
 
 def find_common_variables(data_dict):
-    """Removes variables not common across all datasets, importantly handling country postfixes"""
+    """Removes variables not common across all datasets, handling country postfixes"""
 
     def strip_country_code(col_name, country):
         if col_name.endswith(f"_{country}"):
@@ -79,7 +81,6 @@ def find_common_variables(data_dict):
     for country, df in data_dict.items():
         keep_cols = [col for col in df.columns
                      if strip_country_code(col, country) in common_base_vars]
-        # Renames columns to strip postfixes
         rename_dict = {col: strip_country_code(col, country) for col in keep_cols}
         processed_dict[country] = df[keep_cols].rename(columns=rename_dict)
 
@@ -87,46 +88,38 @@ def find_common_variables(data_dict):
 
 
 def save_as_3d_array(data_dict, date_col):
-    """Saves as 3D NumPy array"""
+    """Saves as 3D NumPy array with shape (time × countries × variables)"""
     n_countries = len(data_dict)
     n_time = min(df.shape[0] for df in data_dict.values())
-    n_variables = len(next(iter(data_dict.values())).columns) - (1 if date_col else 0)
+    n_variables = len(next(iter(data_dict.values())).columns) - 1  # Exclude date_col
 
-    data_3d = np.zeros((n_countries, n_time, n_variables))
+    # Create array with shape (time, countries, variables)
+    data_3d = np.zeros((n_time, n_countries, n_variables))
 
     country_list = sorted(data_dict.keys())
     variables = None
 
-    for i, country in enumerate(country_list):
+    # Fill the array
+    for j, country in enumerate(country_list):
         df = data_dict[country]
-        if date_col:
-            numeric_df = df.drop(columns=[date_col])
-        else:
-            numeric_df = df
-        data_3d[i] = numeric_df.values
-        if i == 0:  # Stores variables from first country without postfixes
+        numeric_df = df.drop(columns=[date_col])
+        # Assign data with time as first dimension
+        data_3d[:, j, :] = numeric_df.values
+        if j == 0:  # Store variables from first country without postfixes
             variables = numeric_df.columns.tolist()
 
     output_file = OUTPUT_DIR / 'processed_3d_data.npz'
-    if date_col:
-        dates = data_dict[country_list[0]][date_col].values
-        np.savez(
-            output_file,
-            data=data_3d,
-            dates=dates,
-            countries=country_list,
-            variables=variables
-        )
-    else:
-        np.savez(
-            output_file,
-            data=data_3d,
-            countries=country_list,
-            variables=variables
-        )
+    dates = data_dict[country_list[0]][date_col].values
+    np.savez(
+        output_file,
+        data=data_3d,
+        dates=dates,
+        countries=country_list,
+        variables=variables
+    )
 
     print(f"\nSaved 3D array to {output_file}")
-    print(f"Shape: {data_3d.shape} (countries × time × variables)")
+    print(f"Shape: {data_3d.shape} (time × countries × variables)")
     print(f"Countries: {country_list}")
     print(f"Variables: {variables}")
 
