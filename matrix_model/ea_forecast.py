@@ -6,6 +6,6 @@ countries = data['countries']  # List of country codes
 variables = data['variables']  # List of variable names (no postfixes)
 dates = data.get('dates', None)  # Dates array
 
-print(f"Shape: {array_3d.shape} (countries × time × variables)")
+print(f"Shape: {array_3d.shape} (time × countries × variables)")
 
 
