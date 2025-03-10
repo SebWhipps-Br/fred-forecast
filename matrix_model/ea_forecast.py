@@ -1,12 +1,13 @@
 import numpy as np
-from matplotlib import pyplot as plt
+import plotly.graph_objects as go
 from sklearn.decomposition import PCA
+from sklearn.linear_model import LinearRegression
 
 
 class MatrixFactorModel:
     def __init__(self, X, k1, k2, max_iterations=1):
         """
-        Initialize the matrix factor model with standardized data.
+        Initialise the matrix factor model with standardized data.
 
         Parameters:
         - X: 3D array of shape (T, p1, p2) - time x rows x columns
@@ -15,7 +16,7 @@ class MatrixFactorModel:
         - max_iterations: Number of projection iterations (default 1)
         """
         self.X_unscaled = X  # Keeps original
-        self.X = self.standardise_data(X) # Scales the data
+        self.X = self._standardise_data(X)  # Scales the data
         self.T, self.p1, self.p2 = X.shape  # time, rows (countries), columns (variables)
         self.k1 = k1  # Row factors
         self.k2 = k2  # Column factors
@@ -25,7 +26,8 @@ class MatrixFactorModel:
         self.R = None  # Row loading matrix (p1 x k1)
         self.C = None  # Column loading matrix (p2 x k2)
 
-    def standardise_data(self, X):
+    @staticmethod
+    def _standardise_data(X):
         """
         Standardises the input data along the time axis (mean 0, std 1).
 
@@ -41,12 +43,27 @@ class MatrixFactorModel:
         X_scaled = (X_scaled - mean) / std
         return X_scaled
 
-    def compute_M(self, axis='rows'):
+    def _unscale(self, X_scaled):
+        """Unscale standardized data to original units.
+
+        Args:
+            X_scaled (np.ndarray): Standardized array of shape (..., p1, p2).
+
+        Returns:
+            np.ndarray: Unscaled array of same shape as X_scaled.
         """
-        Compute the scaled sample covariance matrix M̂.
+        mean = np.mean(self.X_unscaled, axis=0, keepdims=True)
+        std = np.std(self.X_unscaled, axis=0, keepdims=True)
+        return X_scaled * std + mean
+
+    def _compute_M(self, axis='rows'):
+        """
+        Computes the scaled sample covariance matrix M̂.
 
         Parameters:
-            - axis: axis along which to compute the covariance matrix; either 'rows' or 'cols'
+            axis: axis along which to compute the covariance matrix; either 'rows' or 'columns'
+        Returns:
+            np.ndarray: Covariance matrix.
         """
         if axis == 'rows':
             M = np.zeros((self.p1, self.p1))  # p1 x p1 (e.g., 8 x 8)
@@ -60,25 +77,24 @@ class MatrixFactorModel:
                 Xt = self.X[t]  # p1 x p2
                 M += Xt.T @ Xt
             M /= (self.T * self.p1 * self.p2)
+        else:
+            raise NotImplementedError
         return M
 
+    def _compute_pca_loading(self, M, n_components, scale_factor):
+        """Helper to compute PCA-based loading matrix."""
+        pca = PCA(n_components=n_components)
+        pca.fit(M)
+        loading = np.sqrt(scale_factor) * pca.components_.T
+        print(f"Shape: {loading.shape}, Explained variance: {pca.explained_variance_ratio_}")
+        return loading
+
     def initial_estimate(self):
-        """Computes initial estimates R̂ and Ĉ using PCA."""
-        M1 = self.compute_M(axis='rows')  # p1 x p1
-        pca1 = PCA(n_components=self.k1)
-        pca1.fit(M1)
-        Q1 = pca1.components_.T
-        self.R = np.sqrt(self.p1) * Q1
-        print(f"Initial R shape: {self.R.shape}, Explained variance: {pca1.explained_variance_ratio_}")
+        """Compute initial estimates R̂ and Ĉ using PCA."""
+        self.R = self._compute_pca_loading(self._compute_M('rows'), self.k1, self.p1)
+        self.C = self._compute_pca_loading(self._compute_M('columns'), self.k2, self.p2)
 
-        M2 = self.compute_M(axis='columns')  # p2 x p2
-        pca2 = PCA(n_components=self.k2)
-        pca2.fit(M2)
-        Q2 = pca2.components_.T
-        self.C = np.sqrt(self.p2) * Q2
-        print(f"Initial C shape: {self.C.shape}, Explained variance: {pca2.explained_variance_ratio_}")
-
-    def project_data(self):
+    def _project_data(self):
         """Project X into lower-dimensional Ŷ_t and Ẑ_t."""
         Y_hat = np.zeros((self.T, self.p1, self.k2))
         Z_hat = np.zeros((self.T, self.p2, self.k1))
@@ -88,29 +104,18 @@ class MatrixFactorModel:
             Z_hat[t] = (Xt.T @ self.R) / self.p1  # Ẑ_t
         return Y_hat, Z_hat
 
-    def refine_estimates(self, Y_hat, Z_hat):
-        """Refine R and C using projected data."""
-        M1_tilde = np.zeros((self.p1, self.p1))
+    def _compute_covariance(self, data, dim):
+        """Compute covariance matrix from projected data."""
+        M = np.zeros((dim, dim))
         for t in range(self.T):
-            Yt = Y_hat[t]
-            M1_tilde += Yt @ Yt.T
-        M1_tilde /= (self.T * self.p1)
-        pca1 = PCA(n_components=self.k1)
-        pca1.fit(M1_tilde)
-        Q1_tilde = pca1.components_.T
-        self.R = np.sqrt(self.p1) * Q1_tilde
-        print(f"Refined R shape: {self.R.shape}, Explained variance: {pca1.explained_variance_ratio_}")
+            M += data[t] @ data[t].T
+        M /= (self.T * dim)
+        return M
 
-        M2_tilde = np.zeros((self.p2, self.p2))
-        for t in range(self.T):
-            Zt = Z_hat[t]
-            M2_tilde += Zt @ Zt.T
-        M2_tilde /= (self.T * self.p2)
-        pca2 = PCA(n_components=self.k2)
-        pca2.fit(M2_tilde)
-        Q2_tilde = pca2.components_.T
-        self.C = np.sqrt(self.p2) * Q2_tilde
-        print(f"Refined C shape: {self.C.shape}, Explained variance: {pca2.explained_variance_ratio_}")
+    def _refine_estimates(self, Y_hat, Z_hat):
+        """Refine R and C using projected data."""
+        self.R = self._compute_pca_loading(self._compute_covariance(Y_hat, self.p1), self.k1, self.p1)
+        self.C = self._compute_pca_loading(self._compute_covariance(Z_hat, self.p2), self.k2, self.p2)
 
     def fit(self):
         """Fits the matrix factor model."""
@@ -118,8 +123,8 @@ class MatrixFactorModel:
         self.initial_estimate()
         for i in range(self.max_iterations):
             print(f"Iteration {i + 1}/{self.max_iterations}")
-            Y_hat, Z_hat = self.project_data()
-            self.refine_estimates(Y_hat, Z_hat)
+            Y_hat, Z_hat = self._project_data()
+            self._refine_estimates(Y_hat, Z_hat)
 
     def get_loading_matrices(self):
         """Return the estimated R and C."""
@@ -172,46 +177,125 @@ class MatrixFactorModel:
 
         return X_hat, E, residual_norms
 
-    def plot_variable_across_countries(self, variable_idx, country_names=None):
+    def forecast(self, h):
         """
-        Plot a variable across all countries, comparing original and model data.
+        Forecast X_{t+h} using a static factor model approach with precomputed factors.
+
+        Parameters:
+        - h: int, forecast horizon (number of steps ahead)
+
+        Returns:
+        - X_forecast: np.array of shape (h, p1, p2), h-step-ahead forecasts
+        """
+        # Vectorize X and F
+        X_vec = self.X.reshape(self.T, -1)  # Shape: (T, p1*p2)
+        F = self.estimate_factors()  # Shape: (T, k1, k2)
+        F_vec = F.reshape(self.T, -1)  # Shape: (T, k1*k2)
+
+        X_forecast_vec = np.zeros((h, self.p1 * self.p2))  # Shape: (h, p1*p2)
+
+        # Fit regression and forecast for each horizon
+        for horizon in range(1, h + 1):
+            if self.T - horizon < 1:
+                raise ValueError(f"Not enough data for horizon {horizon}.")
+            X_target = X_vec[horizon:]  # Shape: (T-horizon, p1*p2)
+            F_t = F_vec[:-horizon]  # Shape: (T-horizon, k1*k2)
+
+            # Fits multivariate OLS regression: vec(X_{t+horizon}) = vec(F_t) * B + E
+            lr_model = LinearRegression()
+            lr_model.fit(F_t, X_target)
+
+            # Forecast using the last factors
+            last_factors = F_vec[-1, :].reshape(1, -1)  # Shape: (1, k1*k2)
+            X_forecast_vec[horizon - 1] = lr_model.predict(last_factors)  # Shape: (1, p1*p2)
+
+        # Reshape forecast back to matrix form and unscale
+        X_forecast = X_forecast_vec.reshape(h, self.p1, self.p2)  # Shape: (h, p1, p2)
+        return self._unscale(X_forecast)
+
+    def plot_variable_across_countries(self, variable_idx, h, X_test, dates_full, country_names=None):
+        """
+        Plot a variable across all countries using Plotly, showing full time series with forecast and test data.
 
         Parameters:
         - variable_idx: Index of the variable to plot (0 to p2-1)
+        - h: Forecast horizon (used to split training/test)
+        - X_test: Test data array of shape (h, p1, p2)
+        - dates_full: Array of dates for the full time series (length T + h)
         - country_names: List of country names (optional, defaults to indices)
         """
         if variable_idx < 0 or variable_idx >= self.p2:
             raise ValueError(f"variable_idx must be between 0 and {self.p2 - 1}")
+        if len(dates_full) != self.T + h:
+            raise ValueError(f"dates_full length ({len(dates_full)}) must match T + h ({self.T + h})")
 
-        # Get original and reconstructed data for the variable
-        X_orig = self.X_unscaled[:, :, variable_idx]  # Shape: (T, p1)
-        X_hat = self.reconstruct_X()[:, :, variable_idx]  # Shape: (T, p1)
+        # Full original data (training + test)
+        X_orig_train = self.X_unscaled  # Shape: (T, p1, p2) for training
+        X_orig_test = X_test  # Shape: (h, p1, p2)
+        X_orig_full = np.concatenate([X_orig_train, X_orig_test], axis=0)  # Shape: (T+h, p1, p2)
 
-        # Reverse standardization for X_hat to match X_unscaled
-        mean = np.mean(self.X_unscaled[:, :, variable_idx], axis=0, keepdims=True)
-        std = np.std(self.X_unscaled[:, :, variable_idx], axis=0, keepdims=True)
-        X_hat_unscaled = X_hat * std + mean  # Shape: (T, p1)
+        # Reconstructed training data
+        X_hat_train = self.reconstruct_X()  # Shape: (T, p1, p2)
+        mean = np.mean(self.X_unscaled, axis=0, keepdims=True)
+        std = np.std(self.X_unscaled, axis=0, keepdims=True)
+        X_hat_train_unscaled = X_hat_train * std + mean
 
-        # Set up country names
+        # Forecast data
+        X_forecast = self.forecast(h)  # Shape: (h, p1, p2)
+
+        # Extract variable across all countries
+        X_full = X_orig_full[:, :, variable_idx]  # Shape: (T+h, p1)
+        X_hat_train_var = X_hat_train_unscaled[:, :, variable_idx]  # Shape: (T, p1)
+        X_forecast_var = X_forecast[:, :, variable_idx]  # Shape: (h, p1)
+
+        # Dates
+        dates_train = dates_full[:self.T]
+        dates_test = dates_full[self.T:]
+
+        # Country names
         if country_names is None or len(country_names) != self.p1:
             country_names = [f"Country {i}" for i in range(self.p1)]
 
-        # Plot
-        plt.figure(figsize=(12, 6))
+        # Create Plotly figure
+        fig = go.Figure()
+
         for i in range(self.p1):
-            plt.plot(X_orig[:, i], label=f"{country_names[i]} (Original)", alpha=0.7)
-            plt.plot(X_hat_unscaled[:, i], '--', label=f"{country_names[i]} (Model)", alpha=0.7)
-        plt.title(f"Variable {variable_idx} Across Countries")
-        plt.xlabel("Time")
-        plt.ylabel("Value")
-        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-        plt.tight_layout()
-        plt.show()
+            # Full actual data (solid line)
+            fig.add_trace(go.Scatter(
+                x=dates_full, y=X_full[:, i], mode='lines', name=f"{country_names[i]} (Actual)",
+                line=dict(color='blue', width=1), opacity=0.5, legendgroup=country_names[i]
+            ))
+            # Reconstructed training data (dashed line)
+            fig.add_trace(go.Scatter(
+                x=dates_train, y=X_hat_train_var[:, i], mode='lines', name=f"{country_names[i]} (Model)",
+                line=dict(color='orange', dash='dash', width=1), opacity=0.7, legendgroup=country_names[i],
+                showlegend=False
+            ))
+            # Forecast data (dotted line)
+            fig.add_trace(go.Scatter(
+                x=dates_test, y=X_forecast_var[:, i], mode='lines', name=f"{country_names[i]} (Forecast)",
+                line=dict(color='red', dash='dot', width=1), opacity=0.7, legendgroup=country_names[i],
+                showlegend=False
+            ))
+
+        # Add vertical line for train/test split
+        fig.add_vline(x=dates_full[self.T], line=dict(color='gray', dash='dash'), name='Train/Test Split')
+
+        # Update layout
+        fig.update_layout(
+            title=f"Variable {variable_idx} Across Countries: Full Time Series with Forecast",
+            xaxis_title="Date",
+            yaxis_title="Value",
+            legend=dict(x=1.05, y=1, xanchor='left', yanchor='top'),
+            width=1000, height=600
+        )
+
+        fig.show()
 
 
 # Load and run
 data = np.load('processed_data/processed_3d_data.npz')
-X_unscaled = data['data']  # Shape: (257, 8, 37)
+X_unscaled = data['data']
 countries = data['countries']
 variables = data['variables']
 dates = data.get('dates', None)
@@ -221,15 +305,42 @@ T, n_countries, n_variables = X_unscaled.shape
 
 COUNTRY_FACTORS = 3
 VARIABLE_FACTORS = 5
+HORIZON = 12
 
-# Fits the model
-model = MatrixFactorModel(X_unscaled, k1=COUNTRY_FACTORS, k2=VARIABLE_FACTORS, max_iterations=1)
+# Split into training and test sets
+X_train = X_unscaled[:-HORIZON]  # First T-h points
+X_test = X_unscaled[-HORIZON:]  # Last h points
+print(f"Training shape: {X_train.shape}")
+print(f"Test shape: {X_test.shape}")
+
+# Fit the model on training data only
+model = MatrixFactorModel(X_train, k1=COUNTRY_FACTORS, k2=VARIABLE_FACTORS, max_iterations=1)
 model.fit()
 
-# Evaluates model
 R, C = model.get_loading_matrices()
 print("\nFinal R (countries x factors):\n", R[:5, :])
 print("Final C (variables x factors):\n", C[:5, :])
-X_hat, E, residual_norms = model.check_model()
 
-model.plot_variable_across_countries(variable_idx=0, country_names=countries)
+# Check the model on training data
+X_hat_train, E_train, residual_norms_train = model.check_model()
+
+# Forecast h steps ahead
+X_forecast = model.forecast(h=HORIZON)
+print(f"Forecast shape: {X_forecast.shape}")
+
+# Evaluate forecast against test set
+test_residuals = X_test - X_forecast
+test_residual_norms = np.linalg.norm(test_residuals, ord='fro', axis=(1, 2))
+avg_test_residual_norm = np.mean(test_residual_norms)
+test_total_variance = np.sum(np.linalg.norm(X_test, ord='fro', axis=(1, 2)) ** 2)
+test_explained_variance = np.sum(np.linalg.norm(X_forecast, ord='fro', axis=(1, 2)) ** 2)
+test_explained_variance_ratio = test_explained_variance / test_total_variance
+
+print(f"\nForecast Diagnostics (Test Data):")
+print(f"Average Frobenius norm of residuals: {avg_test_residual_norm:.4f}")
+print(f"Explained variance ratio: {test_explained_variance_ratio:.4f}")
+print(f"Residual variance ratio: {1 - test_explained_variance_ratio:.4f}")
+
+# Plot variable 0 with full time series, test, and forecast using dates
+model.plot_variable_across_countries(variable_idx=0, h=HORIZON, X_test=X_test, dates_full=dates,
+                                     country_names=countries)
