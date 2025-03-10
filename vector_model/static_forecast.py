@@ -229,6 +229,8 @@ performance(X_actual, forecast)
 print("baseline_forecast:")
 performance(X_actual, baseline_forecast)
 
-new_plot_actual_vs_common_components(X, fitted_values[:-h], baseline_forecast, chosen_component=10, dates=dates, h=h)
+component = 40
 
-new_plot_actual_vs_common_components(X, common, forecast, chosen_component=10, dates=dates, h=h)
+new_plot_actual_vs_common_components(X, fitted_values[:-h], baseline_forecast, chosen_component=component, dates=dates, h=h)
+
+new_plot_actual_vs_common_components(X, common, forecast, chosen_component=component, dates=dates, h=h)
