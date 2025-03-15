@@ -1,11 +1,13 @@
 import numpy as np
 import plotly.graph_objects as go
+from fontTools.cu2qu.benchmark import MAX_ERR
+from fontTools.cu2qu.cu2qu import MAX_N
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression
 
 
 class MatrixFactorModel:
-    def __init__(self, X, k1, k2, max_iterations=1):
+    def __init__(self, X, k1=None, k2=None, max_k1=None, max_k2=None, max_iterations=1):
         """
         Initialise the matrix factor model with standardized data.
 
@@ -18,16 +20,23 @@ class MatrixFactorModel:
         self.X_unscaled = X  # Keeps original
         self.X = self._standardise_data(X)  # Scales the data
         self.T, self.p1, self.p2 = X.shape  # time, rows (countries), columns (variables)
-        self.k1 = k1  # Row factors
-        self.k2 = k2  # Column factors
         self.max_iterations = max_iterations
 
         # Initialise loading matrices
         self.R = None  # Row loading matrix (p1 x k1)
         self.C = None  # Column loading matrix (p2 x k2)
+        self.F = None  # Common factor matrix (k1 x k2)
 
-    @staticmethod
-    def _standardise_data(X):
+        if k1 is None or k2 is None:
+            if max_k1 is None or max_k2 is None:
+                raise ValueError("Must provide max_k1 and max_k2 if k1 or k2 is None")
+            print("Determining optimal number of factors using ER method...")
+            self.k1, self.k2 = self.determine_factors(max_k1, max_k2)
+        else:
+            self.k1, self.k2 = k1, k2
+
+
+    def _standardise_data(self, X):
         """
         Standardises the input data along the time axis (mean 0, std 1).
 
@@ -72,7 +81,7 @@ class MatrixFactorModel:
                 M += Xt @ Xt.T
             M /= (self.T * self.p1 * self.p2)
         elif axis == 'columns':
-            M = np.zeros((self.p2, self.p2))  # p2 x p2 (e.g., 37 x 37)
+            M = np.zeros((self.p2, self.p2))  # p2 x p2 (e.g. 37 x 37)
             for t in range(self.T):
                 Xt = self.X[t]  # p1 x p2
                 M += Xt.T @ Xt
@@ -125,6 +134,7 @@ class MatrixFactorModel:
             print(f"Iteration {i + 1}/{self.max_iterations}")
             Y_hat, Z_hat = self._project_data()
             self._refine_estimates(Y_hat, Z_hat)
+        self.F = self.estimate_factors()  # Shape: (T, k1, k2)
 
     def get_loading_matrices(self):
         """Return the estimated R and C."""
@@ -189,8 +199,7 @@ class MatrixFactorModel:
         """
         # Vectorize X and F
         X_vec = self.X.reshape(self.T, -1)  # Shape: (T, p1*p2)
-        F = self.estimate_factors()  # Shape: (T, k1, k2)
-        F_vec = F.reshape(self.T, -1)  # Shape: (T, k1*k2)
+        F_vec = self.F.reshape(self.T, -1)  # Shape: (T, k1*k2)
 
         X_forecast_vec = np.zeros((h, self.p1 * self.p2))  # Shape: (h, p1*p2)
 
@@ -287,10 +296,71 @@ class MatrixFactorModel:
             xaxis_title="Date",
             yaxis_title="Value",
             legend=dict(x=1.05, y=1, xanchor='left', yanchor='top'),
-            width=1000, height=600
+            width=1600, height=900
         )
 
         fig.show()
+
+    def _compute_eigenvalue_ratios(self, M, max_factors):
+        """Compute eigenvalue ratios for a covariance matrix.
+
+        Args:
+            M (np.ndarray): Covariance matrix (e.g., p1 x p1 or p2 x p2).
+            max_factors (int): Maximum number of factors to consider.
+
+        Returns:
+            np.ndarray: Array of eigenvalue ratios.
+        """
+        pca = PCA(n_components=min(max_factors, M.shape[0]))
+        pca.fit(M)
+        eigenvalues = pca.explained_variance_
+        # Ensure we have enough eigenvalues, pad with zeros if needed
+        if len(eigenvalues) < max_factors:
+            eigenvalues = np.pad(eigenvalues, (0, max_factors - len(eigenvalues)), 'constant')
+        # Compute ratios: lambda_i / lambda_{i+1}
+        ratios = eigenvalues[:-1] / eigenvalues[1:]
+        return ratios
+
+    def _er_test(self, ratios):
+        """Determine the number of factors using the eigenvalue-ratio test.
+
+        Args:
+            ratios (np.ndarray): Array of eigenvalue ratios.
+
+        Returns:
+            int: Estimated number of factors (k).
+        """
+        if len(ratios) < 1:
+            return 1  # Default to 1 if insufficient data
+        # Find the index of the maximum ratio
+        max_ratio_idx = np.argmax(ratios)
+        return max_ratio_idx + 1  # +1 because ratios start from i=0
+
+    def determine_factors(self, max_k1, max_k2):
+        """Determine optimal number of row (k1) and column (k2) factors using ER method.
+
+        Args:
+            max_k1 (int): Maximum number of row factors to test.
+            max_k2 (int): Maximum number of column factors to test.
+
+        Returns:
+            tuple: (k1, k2) - optimal number of row and column factors.
+        """
+        # Row-wise covariance (p1 x p1)
+        M_rows = self._compute_M(axis='rows')
+        row_ratios = self._compute_eigenvalue_ratios(M_rows, max_k1)
+        k1 = self._er_test(row_ratios)
+        print(f"Row eigenvalue ratios: {row_ratios[:min(5, len(row_ratios))]}...")
+        print(f"Optimal k1 (row factors): {k1}")
+
+        # Column-wise covariance (p2 x p2)
+        M_cols = self._compute_M(axis='columns')
+        col_ratios = self._compute_eigenvalue_ratios(M_cols, max_k2)
+        k2 = self._er_test(col_ratios)
+        print(f"Column eigenvalue ratios: {col_ratios[:min(5, len(col_ratios))]}...")
+        print(f"Optimal k2 (column factors): {k2}")
+
+        return k1, k2
 
 
 # Load and run
@@ -300,12 +370,14 @@ countries = data['countries']
 variables = data['variables']
 dates = data.get('dates', None)
 
-print(f"Shape: {X_unscaled.shape} (time × countries × variables)")
+#print(f"Shape: {X_unscaled.shape} (time × countries × variables)")
+
 T, n_countries, n_variables = X_unscaled.shape
 
-COUNTRY_FACTORS = 3
-VARIABLE_FACTORS = 5
+MAX_COUNTRY_FACTORS = 5
+MAX_VARIABLE_FACTORS = 10
 HORIZON = 12
+CHOSEN_VARIABLE = 0
 
 # Split into training and test sets
 X_train = X_unscaled[:-HORIZON]  # First T-h points
@@ -314,7 +386,7 @@ print(f"Training shape: {X_train.shape}")
 print(f"Test shape: {X_test.shape}")
 
 # Fit the model on training data only
-model = MatrixFactorModel(X_train, k1=COUNTRY_FACTORS, k2=VARIABLE_FACTORS, max_iterations=1)
+model = MatrixFactorModel(X_train, max_k1=MAX_COUNTRY_FACTORS, max_k2=MAX_VARIABLE_FACTORS, max_iterations=1)
 model.fit()
 
 R, C = model.get_loading_matrices()
@@ -342,5 +414,5 @@ print(f"Explained variance ratio: {test_explained_variance_ratio:.4f}")
 print(f"Residual variance ratio: {1 - test_explained_variance_ratio:.4f}")
 
 # Plot variable 0 with full time series, test, and forecast using dates
-model.plot_variable_across_countries(variable_idx=0, h=HORIZON, X_test=X_test, dates_full=dates,
+model.plot_variable_across_countries(variable_idx=CHOSEN_VARIABLE, h=HORIZON, X_test=X_test, dates_full=dates,
                                      country_names=countries)

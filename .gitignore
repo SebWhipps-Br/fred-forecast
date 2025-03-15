@@ -169,3 +169,22 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+/.idea/.gitignore
+/matrix_model/EA-MD-HT/ATdataM_HT.xlsx
+/matrix_model/EA-MD-HT/BEdataM_HT.xlsx
+/matrix_model/EA-MD-HT/DEdataM_HT.xlsx
+/matrix_model/EA-MD-HT/ELdataM_HT.xlsx
+/matrix_model/EA-MD-HT/ESdataM_HT.xlsx
+/matrix_model/EA-MD-HT/FRdataM_HT.xlsx
+/.idea/fred-forecast.iml
+/matrix_model/removed/IEdataM_HT.xlsx
+/matrix_model/EA-MD-HT/ITdataM_HT.xlsx
+/.idea/misc.xml
+/.idea/modules.xml
+/matrix_model/EA-MD-HT/NLdataM_HT.xlsx
+/matrix_model/processed_data/processed_3d_data.npz
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/matrix_model/removed/PTdataM_HT.xlsx
+/.idea/vcs.xml
