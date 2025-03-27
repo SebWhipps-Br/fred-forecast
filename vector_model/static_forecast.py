@@ -102,15 +102,7 @@ def static_forecast(X, h, q):
 
 def new_plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
-    Plot the actual data against the common components, including predictions within the same time frame.
-
-    Parameters:
-    - actual: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - common_components: np.array of shape (T-h, n), common components of the data, ending h steps before the end of actual
-    - forecast: np.array of shape (h, n), forecasted values for h steps within the actual data time frame
-    - chosen_component: int, the variable to plot (0-indexed)
-    - dates: pd.Index or pd.DatetimeIndex, the dates for plotting
-    - h: int, The number of steps ahead for forecasting within the actual data
+    Plot the actual data against the common components, including predictions within the same time frame using Plotly.
     """
     i = chosen_component
     actual_data = actual[:, i]
@@ -118,13 +110,10 @@ def new_plot_actual_vs_common_components(actual, common_components, forecast, ch
     forecast_values = forecast[:, i]
     plot_dates = dates
 
-    # novel method
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=plot_dates, y=actual_data, mode='lines', name='Actual', line=dict(color='blue')))
-    fig.add_trace(
-        go.Scatter(x=plot_dates[:-h], y=common_data, mode='lines', name='Common Component', line=dict(color='green')))
-    fig.add_trace(go.Scatter(x=plot_dates[-h:], y=forecast_values, mode='lines', name='Forecast',
-                             line=dict(color='red', dash='dash')))
+    fig.add_trace(go.Scatter(x=plot_dates[:-h], y=common_data, mode='lines', name='Common Component', line=dict(color='green')))
+    fig.add_trace(go.Scatter(x=plot_dates[-h:], y=forecast_values, mode='lines', name='Forecast', line=dict(color='red', dash='dash')))
     fig.update_layout(
         title_text=f"Actual vs Common Components with Forecast for Variable {i + 1}",
         xaxis_title="Date",
@@ -137,18 +126,9 @@ def new_plot_actual_vs_common_components(actual, common_components, forecast, ch
     )
     fig.show()
 
-
 def plot_actual_vs_common_components(actual, common_components, forecast, chosen_component, dates, h):
     """
-    Plot the actual data against the common components, including predictions within the same time frame.
-
-    Parameters:
-    - actual: np.array of shape (T, n), observed data where T is time steps and n is number of variables
-    - common_components: np.array of shape (T-h, n), common components of the data, ending h steps before the end of actual
-    - forecast: np.array of shape (h, n), forecasted values for h steps within the actual data time frame
-    - chosen_component: int, the variable to plot (0-indexed)
-    - dates: pd.Index or pd.DatetimeIndex, the dates for plotting
-    - h: int, The number of steps ahead for forecasting within the actual data
+    Plot the actual data against the common components, including predictions within the same time frame using Matplotlib.
     """
     i = chosen_component
     actual_data = actual[:, i]
@@ -156,36 +136,59 @@ def plot_actual_vs_common_components(actual, common_components, forecast, chosen
     forecast_values = forecast[:, i]
     plot_dates = dates
 
-    # Create a new figure with a large size for better visibility
     plt.figure(figsize=(30, 20))
-
-    # Plot the actual data
     plt.plot(plot_dates, actual_data, label='Actual', color='blue', alpha=0.7)
-
-    # Plot the common components (up to h steps before the end of actual data)
     plt.plot(plot_dates[:-h], common_data, label='Common Component', color='green', alpha=0.7)
-
-    # Plot the forecast
     if h <= 1:
         plt.scatter(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=1.0)
     else:
         plt.plot(plot_dates[-h:], forecast_values, label='Forecast', color='red', alpha=0.5)
-
-    # Labeling
     plt.xlabel('Date')
     plt.ylabel(f'Variable {i + 1}')
     plt.title(f'Actual Data vs Common Components with Forecast for Variable {i + 1}')
-
-    # Adjust the legend
     plt.legend()
-
-    # Format x-axis dates
     plt.gcf().autofmt_xdate()
-
-    # Tight layout
     plt.tight_layout()
     plt.show()
 
+def plot_actual_vs_common_components_highres(actual, common_components, forecast, chosen_component, dates, df, h, save_path_prefix='figures/forecast_plot'):
+    """
+    High-resolution Matplotlib plot for poster, starting from 2000, with variable name in title.
+    Parameters:
+    - actual: np.array of shape (T, n), observed data
+    - common_components: np.array of shape (T-h, n), common components
+    - forecast: np.array of shape (h, n), forecasted values
+    - chosen_component: int, variable index
+    - dates: pd.DatetimeIndex, dates for plotting
+    - df: pd.DataFrame, original data with column names
+    - h: int, forecast horizon
+    - save_path_prefix: str, prefix for saved file path
+    """
+    i = chosen_component
+    variable_name = df.columns[i]  # Get variable name (e.g., "RPI")
+    mask = dates >= '2000-01-01'  # Filter from 2000 onwards
+    plot_dates = dates[mask]
+    actual_data = actual[mask, i]
+    common_data = common_components[mask[:-h], i]  # Adjust for horizon
+    forecast_values = forecast[:, i]
+
+    plt.figure(figsize=(12, 8), dpi=300)  # Large, high-res
+    plt.plot(plot_dates, actual_data, label='Actual', color='blue', linewidth=2)
+    plt.plot(plot_dates[:-h], common_data, label='Common Component', color='green', linewidth=2)
+    plt.plot(plot_dates[-h:], forecast_values, label='Forecast', color='red', linestyle='--', linewidth=2)
+    plt.xlabel('Date', fontsize=14)
+    plt.ylabel(variable_name, fontsize=14)
+    plt.title(f'Actual vs Common Components with Forecast for {variable_name}', fontsize=16, pad=10)
+    plt.legend(fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.gcf().autofmt_xdate()
+    plt.tight_layout()
+
+    # Save high-res plot
+    save_path = f'{save_path_prefix}_{variable_name}.png'
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.show()
+    plt.close()
 
 def performance(true_values, predicted_values):
     print("true_values.shape:", true_values.shape)
@@ -197,28 +200,26 @@ def performance(true_values, predicted_values):
     print("mae:     ", mae)
     print("mape:   ", mape)
 
-
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
-
 scaler = StandardScaler()
 X = scaler.fit_transform(df)
-
 dates = df.index
 
 T, n = X.shape
 print("T:", T, "n:", n)
 
-q = 7  # The number of factors
-h = 12  # Horizon - Forecasting step(s) ahead
-X_train, X_actual = X[:-h], X[-h:]  # Split data for training and testing
+q = 7  # Number of factors
+h = 12  # Horizon
+X_train, X_actual = X[:-h], X[-h:]  # Split data
 
-# checks
+# Checks
 if h <= 0:
     raise ValueError("Forecast horizon 'h' must be positive.")
 if q > min(n, T):
     raise ValueError("Number of factors 'q' cannot exceed min(n, T).")
 
+# Run models
 forecast, common = static_forecast(X_train, h, q)
 baseline_forecast, _, fitted_values = fit_ar1_baseline_statsmodels(X, h)
 print(common.shape)
@@ -229,8 +230,11 @@ performance(X_actual, forecast)
 print("baseline_forecast:")
 performance(X_actual, baseline_forecast)
 
-component = 40
+component = 71  # Example: RPI if it’s column 40
 
+# Existing plots
 new_plot_actual_vs_common_components(X, fitted_values[:-h], baseline_forecast, chosen_component=component, dates=dates, h=h)
-
 new_plot_actual_vs_common_components(X, common, forecast, chosen_component=component, dates=dates, h=h)
+
+# High-res plot for poster
+plot_actual_vs_common_components_highres(X, common, forecast, chosen_component=component, dates=dates, df=df, h=h)

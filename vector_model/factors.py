@@ -151,6 +151,31 @@ def plot_eigenvalues(values):
 
     fig.show()
 
+def plot_eigenvalues_matplotlib(values, save_path='figures/eigenvalues_plot.png'):
+    """
+    Plot eigenvalues from PCA as a high-resolution bar chart using Matplotlib for poster display.
+    Parameters:
+    - values: Array of eigenvalues from PCA
+    - save_path: String, file path to save the plot (default: 'figures/eigenvalues_plot.png')
+    """
+    n_components = len(values)
+    components = list(range(1, n_components + 1))
+
+    plt.figure(figsize=(12, 8), dpi=300)  # Large size, high resolution
+    plt.bar(components, values, color='skyblue', edgecolor='black', width=0.8)
+    plt.xlabel('Principal Component Number', fontsize=14)
+    plt.ylabel('Eigenvalue', fontsize=14)
+    plt.title('Eigenvalues of Principal Components', fontsize=16, pad=10)
+    plt.xticks(components, fontsize=12)
+    plt.yticks(fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+
+    # Save high-res plot for poster
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.show()
+    plt.close()
+
 # Data loading and preparation
 df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
 X = df.values # T x n
@@ -175,6 +200,7 @@ print("ER results:", er_test(eigenvalue_ratios))
 print("GR results:", gr_test(eigenvalues))
 
 plot_eigenvalues(eigenvalues)
+plot_eigenvalues_matplotlib(eigenvalues)  # High-res for poster
 
 ai1, ai2, ai3 = bai_ng_criteria(X_scaled, max_factors)
 

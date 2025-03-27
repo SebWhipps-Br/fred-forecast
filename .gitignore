@@ -188,3 +188,4 @@ cython_debug/
 /.idea/inspectionProfiles/Project_Default.xml
 /matrix_model/removed/PTdataM_HT.xlsx
 /.idea/vcs.xml
+/vector_model/figures/
