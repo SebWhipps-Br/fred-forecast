@@ -141,13 +141,13 @@ class MatrixFactorModel:
         return self.R, self.C
 
     def estimate_factors(self):
-        """Estimate F_t for each time t."""
-        R_pinv = np.linalg.pinv(self.R)  # Shape: (k1, p1)
-        C_pinv = np.linalg.pinv(self.C)  # Shape: (k2, p2)
-        F = np.zeros((self.T, self.k1, self.k2))  # T x k1 x k2
+        """Estimate F_t for each time t using scaled transposes."""
+        R_T_scaled = self.R.T / self.p1  # Shape: (k1, p1)
+        C_T_scaled = self.C.T / self.p2  # Shape: (k2, p2)
+        F = np.zeros((self.T, self.k1, self.k2))
         for t in range(self.T):
             Xt = self.X[t]  # p1 x p2
-            F[t] = R_pinv @ Xt @ C_pinv.T  # (k1 x p1) @ (p1 x p2) @ (p2 x k2) = (k1 x k2)
+            F[t] = R_T_scaled @ Xt @ C_T_scaled.T  # (k1 x p1) @ (p1 x p2) @ (p2 x k2)
         return F
 
     def reconstruct_X(self):
@@ -188,38 +188,34 @@ class MatrixFactorModel:
         return X_hat, E, residual_norms
 
     def forecast(self, h):
-        """
-        Forecast X_{t+h} using a static factor model approach with precomputed factors.
-
-        Parameters:
-        - h: int, forecast horizon (number of steps ahead)
-
-        Returns:
-        - X_forecast: np.array of shape (h, p1, p2), h-step-ahead forecasts
-        """
-        # Vectorize X and F
-        X_vec = self.X.reshape(self.T, -1)  # Shape: (T, p1*p2)
+        """Forecast X_{t+h} using structured matrix factor model."""
+        # Vectorize F and fit dynamics for F_t
         F_vec = self.F.reshape(self.T, -1)  # Shape: (T, k1*k2)
-
+        X_vec = self.X.reshape(self.T, -1)  # Shape: (T, p1*p2)
         X_forecast_vec = np.zeros((h, self.p1 * self.p2))  # Shape: (h, p1*p2)
 
-        # Fit regression and forecast for each horizon
+        # Kronecker product of C and R
+        R_kron_C = np.kron(self.C, self.R)  # Shape: (p1*p2, k1*k2)
+
         for horizon in range(1, h + 1):
             if self.T - horizon < 1:
                 raise ValueError(f"Not enough data for horizon {horizon}.")
-            X_target = X_vec[horizon:]  # Shape: (T-horizon, p1*p2)
+            F_target = F_vec[horizon:]  # Shape: (T-horizon, k1*k2)
             F_t = F_vec[:-horizon]  # Shape: (T-horizon, k1*k2)
 
-            # Fits multivariate OLS regression: vec(X_{t+horizon}) = vec(F_t) * B + E
+            # Fit dynamics for F_t
             lr_model = LinearRegression()
-            lr_model.fit(F_t, X_target)
+            lr_model.fit(F_t, F_target)
+            A = lr_model.coef_  # Shape: (k1*k2, k1*k2)
 
-            # Forecast using the last factors
+            # Compute structured B
+            B = R_kron_C @ A  # Shape: (p1*p2, k1*k2)
+
+            # Forecast using latest factors
             last_factors = F_vec[-1, :].reshape(1, -1)  # Shape: (1, k1*k2)
-            X_forecast_vec[horizon - 1] = lr_model.predict(last_factors)  # Shape: (1, p1*p2)
+            X_forecast_vec[horizon - 1] = (B @ last_factors.T).T  # Shape: (1, p1*p2)
 
-        # Reshape forecast back to matrix form and unscale
-        X_forecast = X_forecast_vec.reshape(h, self.p1, self.p2)  # Shape: (h, p1, p2)
+        X_forecast = X_forecast_vec.reshape(h, self.p1, self.p2)
         return self._unscale(X_forecast)
 
     def plot_variable_across_countries(self, variable_idx, h, X_test, dates_full, country_names=None):
@@ -377,7 +373,7 @@ T, n_countries, n_variables = X_unscaled.shape
 MAX_COUNTRY_FACTORS = 5
 MAX_VARIABLE_FACTORS = 10
 HORIZON = 12
-CHOSEN_VARIABLE = 0
+CHOSEN_VARIABLE = 21
 
 # Split into training and test sets
 X_train = X_unscaled[:-HORIZON]  # First T-h points
