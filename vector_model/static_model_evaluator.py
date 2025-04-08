@@ -2,10 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import seaborn as sns
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
-import statsmodels.api as sm
-from statsmodels.tsa.stattools import acf
 from scipy.stats import norm
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
 
 
 class ModelEvaluator:
@@ -18,22 +16,11 @@ class ModelEvaluator:
         """
         self.model = model
 
-
     def evaluate_performance(self, true_values, predicted_values, model_name="", baseline_values=None):
-        """
-        Evaluate forecast performance with metrics aligned with factor model literature.
-
-        Parameters:
-        - true_values: np.array, actual values (T_h, N)
-        - predicted_values: np.array, forecasted values (T_h, N)
-        - model_name: str, name of the model for printing
-        - baseline_values: np.array, optional baseline forecast for Diebold-Mariano test (T_h, N)
-        """
         print(f"{model_name} Performance:")
         print("true_values.shape:", true_values.shape)
         print("predicted_values.shape:", predicted_values.shape)
 
-        # Standard Metrics
         mse = mean_squared_error(true_values, predicted_values)
         rmse = np.sqrt(mse)
         mae = mean_absolute_error(true_values, predicted_values)
@@ -44,38 +31,169 @@ class ModelEvaluator:
         print("MAE:      ", mae)
         print("MAPE (%): ", mape)
 
-        # Adjusted R²
-        n, p = true_values.shape[0], self.model.q  # n: forecast horizon steps, p: number of factors
+        n, p = true_values.shape[0], self.model.q
         ss_tot = np.sum((true_values - np.mean(true_values, axis=0)) ** 2)
         ss_res = np.sum((true_values - predicted_values) ** 2)
         r2 = 1 - (ss_res / ss_tot)
         adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
         print("Adjusted R²:", adj_r2)
 
-        # Directional Accuracy
         true_diff = np.sign(true_values[1:] - true_values[:-1])
         pred_diff = np.sign(predicted_values[1:] - predicted_values[:-1])
         directional_accuracy = np.mean(true_diff == pred_diff) * 100
         print("Directional Accuracy (%):", directional_accuracy)
 
-        # Diebold-Mariano Test (if baseline provided)
-        if baseline_values is not None:
-            if baseline_values.shape != true_values.shape:
-                print("Warning: Baseline shape mismatch, skipping DM test.")
-            else:
-                # Compute loss differential (mean squared error across variables)
-                loss_forecast = np.mean((true_values - predicted_values) ** 2, axis=1)  # Shape: (T_h,)
-                loss_baseline = np.mean((true_values - baseline_values) ** 2, axis=1)  # Shape: (T_h,)
-                d = loss_forecast - loss_baseline  # 1D array of length T_h
+        if baseline_values is not None and baseline_values.shape == true_values.shape:
+            loss_forecast = np.mean((true_values - predicted_values) ** 2, axis=1)
+            loss_baseline = np.mean((true_values - baseline_values) ** 2, axis=1)
+            d = loss_forecast - loss_baseline
+            # Manual Newey-West HAC covariance
+            n_lags = min(2, len(d) - 1)  # Adjust lags for short horizon
+            hac_cov = self._newey_west_cov(d, n_lags)
+            dm_stat = np.mean(d) / np.sqrt(hac_cov / len(d))
+            dm_pvalue = 2 * (1 - norm.cdf(abs(dm_stat)))
+            print("Diebold-Mariano Test (Newey-West HAC):")
+            print("  DM Statistic:", dm_stat)
+            print("  P-value:", dm_pvalue)
+            print("  (Positive DM stat favors baseline; negative favors forecast)")
+        elif baseline_values is not None:
+            print("Warning: Baseline shape mismatch, skipping DM test.")
+        print()
 
-                # DM test statistic (assuming no autocorrelation for simplicity)
-                dm_stat = np.mean(d) / np.sqrt(np.var(d) / len(d))
+    def evaluate_fit(self, true_values, fitted_values, model_name="", chosen_component=None):
+        """
+        Evaluate the in-sample fit of the model.
+
+        Parameters:
+        - true_values: np.array, actual training data (T_train, N) for static models or (T, N) for AR(1)
+        - fitted_values: np.array, fitted values from the model (T_train, N) or (T, N)
+        - model_name: str, name of the model for printing
+        - chosen_component: int or None, index of the variable to evaluate (if None, evaluates multivariately)
+        """
+        print(f"{model_name} Fit Evaluation:")
+        print("true_values.shape:", true_values.shape)
+        print("fitted_values.shape:", fitted_values.shape)
+
+        if true_values.shape != fitted_values.shape:
+            raise ValueError("Shape mismatch between true_values and fitted_values.")
+
+        if chosen_component is None:
+            # Multivariate fit (all variables)
+            mse = mean_squared_error(true_values, fitted_values)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(true_values, fitted_values)
+            mape = mean_absolute_percentage_error(true_values, fitted_values)
+
+            print("MSE:      ", mse)
+            print("RMSE:     ", rmse)
+            print("MAE:      ", mae)
+            print("MAPE (%): ", mape)
+
+            n, p = true_values.shape[0], self.model.q if hasattr(self.model, 'q') else 1  # p=1 for AR(1)
+            ss_tot = np.sum((true_values - np.mean(true_values, axis=0)) ** 2)
+            ss_res = np.sum((true_values - fitted_values) ** 2)
+            r2 = 1 - (ss_res / ss_tot)
+            adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
+            print("Adjusted R²:", adj_r2)
+        else:
+            # Variable-specific fit
+            variable_name = self.model.df.columns[chosen_component]
+            true_var = true_values[:, chosen_component]
+            fit_var = fitted_values[:, chosen_component]
+
+            print(f"Variable: {variable_name}")
+            print("true_values.shape:", true_var.shape)
+            print("fitted_values.shape:", fit_var.shape)
+
+            mse = mean_squared_error(true_var, fit_var)
+            rmse = np.sqrt(mse)
+            mae = mean_absolute_error(true_var, fit_var)
+            mape = mean_absolute_percentage_error(true_var, fit_var)
+
+            print("MSE:      ", mse)
+            print("RMSE:     ", rmse)
+            print("MAE:      ", mae)
+            print("MAPE (%): ", mape)
+
+            n, p = true_var.shape[0], self.model.q if hasattr(self.model, 'q') else 1
+            ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
+            ss_res = np.sum((true_var - fit_var) ** 2)
+            r2 = 1 - (ss_res / ss_tot)
+            adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
+            print("Adjusted R²:", adj_r2)
+        print()
+
+    def evaluate_variable_performance(self, true_values, predicted_values, chosen_component, model_name="",
+                                      baseline_values=None):
+        variable_name = self.model.df.columns[chosen_component]
+        true_var = true_values[:, chosen_component]
+        pred_var = predicted_values[:, chosen_component]
+
+        print(f"{model_name} Performance for {variable_name}:")
+        print("true_values.shape:", true_var.shape)
+        print("predicted_values.shape:", pred_var.shape)
+
+        mse = mean_squared_error(true_var, pred_var)
+        rmse = np.sqrt(mse)
+        mae = mean_absolute_error(true_var, pred_var)
+        mape = mean_absolute_percentage_error(true_var, pred_var)
+
+        print("MSE:      ", mse)
+        print("RMSE:     ", rmse)
+        print("MAE:      ", mae)
+        print("MAPE (%): ", mape)
+
+        n, p = true_var.shape[0], self.model.q
+        ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
+        ss_res = np.sum((true_var - pred_var) ** 2)
+        r2 = 1 - (ss_res / ss_tot)
+        adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
+        print("Adjusted R²:", adj_r2)
+
+        true_diff = np.sign(true_var[1:] - true_var[:-1])
+        pred_diff = np.sign(pred_var[1:] - pred_var[:-1])
+        directional_accuracy = np.mean(true_diff == pred_diff) * 100
+        print("Directional Accuracy (%):", directional_accuracy)
+
+        if baseline_values is not None:
+            baseline_var = baseline_values[:, chosen_component]
+            if baseline_var.shape == true_var.shape:
+                loss_forecast = (true_var - pred_var) ** 2
+                loss_baseline = (true_var - baseline_var) ** 2
+                d = loss_forecast - loss_baseline
+                n_lags = min(2, len(d) - 1)
+                hac_cov = self._newey_west_cov(d, n_lags)
+                dm_stat = np.mean(d) / np.sqrt(hac_cov / len(d))
                 dm_pvalue = 2 * (1 - norm.cdf(abs(dm_stat)))
-                print("Diebold-Mariano Test:")
+                print("Diebold-Mariano Test (Newey-West HAC):")
                 print("  DM Statistic:", dm_stat)
                 print("  P-value:", dm_pvalue)
                 print("  (Positive DM stat favors baseline; negative favors forecast)")
+            else:
+                print("Warning: Baseline shape mismatch, skipping DM test.")
         print()
+
+    def _newey_west_cov(self, x, n_lags):
+        """
+        Compute Newey-West HAC covariance for a time series.
+
+        Parameters:
+        - x: np.array, 1D array of loss differentials
+        - n_lags: int, number of lags for HAC adjustment
+
+        Returns:
+        - float, HAC covariance estimate
+        """
+        x = x - np.mean(x)  # Center the series
+        n = len(x)
+        # Simple variance (lag 0)
+        cov = np.sum(x ** 2) / n
+        # Add autocovariances with Bartlett weights
+        for lag in range(1, n_lags + 1):
+            weight = 1 - lag / (n_lags + 1)
+            autocov = np.sum(x[lag:] * x[:-lag]) / n
+            cov += 2 * weight * autocov  # Symmetric, so multiply by 2
+        return cov
 
     def plot_actual_vs_common(self, actual, common_components, forecast, chosen_component,
                               save_path_prefix='figures/forecast_plot'):

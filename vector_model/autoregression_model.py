@@ -13,28 +13,33 @@ class AutoRegressionModel:
         """
         self.X = X
         self.h = h
+        self.X_train = self.X[:-self.h]  # Training data (T-h periods)
+        self.X_actual = self.X[-self.h:]  # Test data (h periods)
         self.T, self.N = X.shape
+        self.T_train = self.X_train.shape[0]  # Length of training data
         self.forecasts = None
         self.fitted_values = None
         self.coefficients = None
 
     def fit(self):
-        """Fit AR(1) models to each variable and compute fitted values and forecasts."""
-        x_mean = np.mean(self.X, axis=0)
-        xt_centered = self.X - x_mean
+        """Fit AR(1) models to each variable in X_train and compute fitted values and forecasts."""
+        x_mean = np.mean(self.X_train, axis=0)
+        xt_centered = self.X_train - x_mean
 
         self.forecasts = np.zeros((self.h, self.N))
         self.coefficients = np.zeros(self.N)
-        self.fitted_values = np.zeros((self.T, self.N))
+        self.fitted_values = np.zeros((self.T_train, self.N))  # Fitted values only for training period
 
         for i in range(self.N):
             X_i = xt_centered[:, i]
             model = AutoReg(X_i, lags=1, trend='n')
             result = model.fit()
             self.coefficients[i] = result.params[0]
-            self.forecasts[:, i] = result.predict(start=self.T, end=self.T + self.h - 1, dynamic=True)
+            # Predict h steps starting from the end of training data
+            self.forecasts[:, i] = result.predict(start=self.T_train, end=self.T_train + self.h - 1, dynamic=True)
+            # Compute fitted values for training period (t=1 to T_train-1)
             self.fitted_values[1:, i] = self.coefficients[i] * X_i[:-1]
-            self.fitted_values[0, i] = X_i[0]
+            self.fitted_values[0, i] = X_i[0]  # First value is actual (no lag available)
 
-        self.fitted_values += x_mean
+        self.fitted_values += x_mean  # Adjust back to original scale
         self.forecasts += x_mean  # Adjust forecasts back to original scale

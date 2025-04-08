@@ -93,30 +93,48 @@ class StaticFactorModel:
 
 
 if __name__ == "__main__":
-    variable_number = 71  # 71 - S&P PE Ratio
+    variable_number = 71  # Adjust as needed (e.g., 47 or 71 for S&P PE Ratio)
+    HORIZON = 12  # in months
 
-    # Fit the AR(1) baseline model once
+    # Run the AR(1) baseline model and evaluate its performance
     df = pd.read_csv('preprocessed_current.csv', index_col=0, parse_dates=True)
     X = StandardScaler().fit_transform(df)
-    ar_model = AutoRegressionModel(X, h=12)
+    ar_model = AutoRegressionModel(X, h=HORIZON)
     ar_model.fit()
     baseline_forecast = ar_model.forecasts
     fitted_values = ar_model.fitted_values
+    baseline_evaluator = ModelEvaluator(StaticFactorModel(filepath='preprocessed_current.csv', q=7, h=HORIZON))
+    # Evaluate fit
+    baseline_evaluator.evaluate_fit(ar_model.X_train, fitted_values, "Baseline AR(1) Fit")  # Use X_train, not X
+    baseline_evaluator.evaluate_fit(ar_model.X_train, fitted_values, "Baseline AR(1) Fit", variable_number)
+    # Evaluate forecast
+    baseline_evaluator.evaluate_performance(baseline_evaluator.model.X_actual, baseline_forecast, "Baseline Forecast (AR(1))")
+    baseline_evaluator.evaluate_variable_performance(baseline_evaluator.model.X_actual, baseline_forecast, variable_number, "Baseline Forecast (AR(1))")
+
+    print("\n~~~~~~~~~~~~~~~~~~~\n")
 
     # Run Static Factor Model with Linear Regression
-    model_linear = StaticFactorModel(filepath='preprocessed_current.csv', q=7, h=12, pca_type='standard', forecast_method='linear')
+    model_linear = StaticFactorModel(filepath='preprocessed_current.csv', q=7, h=HORIZON, pca_type='standard', forecast_method='linear')
     model_linear.run(chosen_component=variable_number)
-    evaluator = ModelEvaluator(model_linear)
-    evaluator.evaluate_performance(model_linear.X_actual, baseline_forecast, "Baseline Forecast")
-    evaluator.evaluate_performance(model_linear.X_actual, model_linear.forecast, "Static Forecast (Linear)", baseline_forecast)
-    evaluator.plot_actual_vs_common(model_linear.X, model_linear.common, model_linear.forecast, variable_number)
+    evaluator_linear = ModelEvaluator(model_linear)
+    # Evaluate fit
+    evaluator_linear.evaluate_fit(model_linear.X_train, model_linear.common, "Static Linear Fit")
+    evaluator_linear.evaluate_fit(model_linear.X_train, model_linear.common, "Static Linear Fit", variable_number)
+    # Evaluate forecast
+    evaluator_linear.evaluate_performance(model_linear.X_actual, model_linear.forecast, "Static Forecast (Linear)", baseline_forecast)
+    evaluator_linear.evaluate_variable_performance(model_linear.X_actual, model_linear.forecast, variable_number, "Static Forecast (Linear)", baseline_forecast)
+    evaluator_linear.plot_actual_vs_common(model_linear.X, model_linear.common, model_linear.forecast, variable_number)
 
     print("\n~~~~~~~~~~~~~~~~~~~\n")
 
     # Run Static Factor Model with Random Forest
-    model_rf = StaticFactorModel(filepath='preprocessed_current.csv', q=7, h=12, pca_type='standard', forecast_method='rf')
+    model_rf = StaticFactorModel(filepath='preprocessed_current.csv', q=7, h=HORIZON, pca_type='standard', forecast_method='rf')
     model_rf.run(chosen_component=variable_number)
-    evaluator = ModelEvaluator(model_rf)
-    evaluator.evaluate_performance(model_rf.X_actual, baseline_forecast, "Baseline Forecast")
-    evaluator.evaluate_performance(model_rf.X_actual, model_rf.forecast, "Static Forecast (RF)", baseline_forecast)
-    evaluator.plot_actual_vs_common(model_rf.X, model_rf.common, model_rf.forecast, variable_number)
+    evaluator_rf = ModelEvaluator(model_rf)
+    # Evaluate fit
+    evaluator_rf.evaluate_fit(model_rf.X_train, model_rf.common, "Static RF Fit")
+    evaluator_rf.evaluate_fit(model_rf.X_train, model_rf.common, "Static RF Fit", variable_number)
+    # Evaluate forecast
+    evaluator_rf.evaluate_performance(model_rf.X_actual, model_rf.forecast, "Static Forecast (RF)", baseline_forecast)
+    evaluator_rf.evaluate_variable_performance(model_rf.X_actual, model_rf.forecast, variable_number, "Static Forecast (RF)", baseline_forecast)
+    evaluator_rf.plot_actual_vs_common(model_rf.X, model_rf.common, model_rf.forecast, variable_number)
