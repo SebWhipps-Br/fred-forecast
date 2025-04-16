@@ -93,7 +93,7 @@ class StaticFactorModel:
 
 
 if __name__ == "__main__":
-    variable_number = 71  # Adjust as needed (e.g., 47 or 71 for S&P PE Ratio)
+    variable_number = 118  # Adjust as needed (e.g., 47 or 71 for S&P PE Ratio)
     HORIZON = 12  # in months
 
     # Run the AR(1) baseline model and evaluate its performance
@@ -125,6 +125,15 @@ if __name__ == "__main__":
     evaluator_linear.evaluate_variable_performance(model_linear.X_actual, model_linear.forecast, variable_number, "Static Forecast (Linear)", baseline_forecast)
     evaluator_linear.plot_actual_vs_common(model_linear.X, model_linear.common, model_linear.forecast, variable_number)
 
+
+    evaluator_linear.plot_factor_loadings_heatmap()
+    evaluator_linear.plot_variance_explained_per_variable(varimax=True)
+    evaluator_linear.plot_variance_explained_per_variable(varimax=False)
+
+    evaluator_linear.plot_common_component_r2(model_linear.X_train, model_linear.common)
+
+    evaluator_linear.plot_common_component_r2_with_varimax(model_linear.X_train, model_linear.common)
+    '''
     print("\n~~~~~~~~~~~~~~~~~~~\n")
 
     # Run Static Factor Model with Random Forest
@@ -138,3 +147,4 @@ if __name__ == "__main__":
     evaluator_rf.evaluate_performance(model_rf.X_actual, model_rf.forecast, "Static Forecast (RF)", baseline_forecast)
     evaluator_rf.evaluate_variable_performance(model_rf.X_actual, model_rf.forecast, variable_number, "Static Forecast (RF)", baseline_forecast)
     evaluator_rf.plot_actual_vs_common(model_rf.X, model_rf.common, model_rf.forecast, variable_number)
+    '''

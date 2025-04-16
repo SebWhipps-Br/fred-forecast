@@ -2,9 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 import seaborn as sns
+from factor_analyzer import Rotator
 from scipy.stats import norm
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error
-
 
 class ModelEvaluator:
     def __init__(self, model):
@@ -35,8 +35,7 @@ class ModelEvaluator:
         ss_tot = np.sum((true_values - np.mean(true_values, axis=0)) ** 2)
         ss_res = np.sum((true_values - predicted_values) ** 2)
         r2 = 1 - (ss_res / ss_tot)
-        adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
-        print("Adjusted R²:", adj_r2)
+        print("R²:", r2)
 
         true_diff = np.sign(true_values[1:] - true_values[:-1])
         pred_diff = np.sign(predicted_values[1:] - predicted_values[:-1])
@@ -93,8 +92,7 @@ class ModelEvaluator:
             ss_tot = np.sum((true_values - np.mean(true_values, axis=0)) ** 2)
             ss_res = np.sum((true_values - fitted_values) ** 2)
             r2 = 1 - (ss_res / ss_tot)
-            adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
-            print("Adjusted R²:", adj_r2)
+            print("R²:", r2)
         else:
             # Variable-specific fit
             variable_name = self.model.df.columns[chosen_component]
@@ -119,8 +117,7 @@ class ModelEvaluator:
             ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
             ss_res = np.sum((true_var - fit_var) ** 2)
             r2 = 1 - (ss_res / ss_tot)
-            adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
-            print("Adjusted R²:", adj_r2)
+            print("R²:", r2)
         print()
 
     def evaluate_variable_performance(self, true_values, predicted_values, chosen_component, model_name="",
@@ -147,8 +144,7 @@ class ModelEvaluator:
         ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
         ss_res = np.sum((true_var - pred_var) ** 2)
         r2 = 1 - (ss_res / ss_tot)
-        adj_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1) if n > p + 1 else np.nan
-        print("Adjusted R²:", adj_r2)
+        print("R²:", r2)
 
         true_diff = np.sign(true_var[1:] - true_var[:-1])
         pred_diff = np.sign(pred_var[1:] - pred_var[:-1])
@@ -253,37 +249,45 @@ class ModelEvaluator:
         fig.show()
 
     def plot_factor_loadings_heatmap(self):
-        """Heatmap of factor loadings for all variables."""
+        """Heatmap of factor loadings for all variables with Varimax rotation."""
         if self.model.pca is None:
             raise ValueError("Run fit_static_model() first to fit the PCA model.")
 
-        loadings = self.model.pca.components_.T
+        # Original PCA loadings
+        loadings = self.model.pca.components_.T  # Shape: (n, q)
+
+        # Apply Varimax rotation
+        rotator = Rotator(method='varimax')
+        rotated_loadings = rotator.fit_transform(loadings)
+
+        # Plot heatmap
         plt.figure(figsize=(20, 30))
-        sns.heatmap(loadings, cmap='coolwarm', center=0,
+        sns.heatmap(rotated_loadings, cmap='coolwarm', center=0,
                     xticklabels=[f'Factor {i + 1}' for i in range(self.model.q)],
                     yticklabels=self.model.df.columns,
                     annot=False, fmt='.2f')
-        plt.title('Factor Loadings Heatmap', fontsize=16)
+        plt.title('Varimax-Rotated Factor Loadings Heatmap', fontsize=16)
         plt.xlabel('Factors', fontsize=12)
         plt.ylabel('Variables', fontsize=12)
         plt.tight_layout()
         plt.show()
 
     def plot_variable_factor_contribution(self, chosen_variable):
-        """Bar plot of factor contributions for a specific variable."""
-        if self.model.pca is None:
-            raise ValueError("Run fit_static_model() first to fit the PCA model.")
-
-        loadings = self.model.pca.components_.T
-        variable_name = self.model.df.columns[chosen_variable]
-        variable_loadings = loadings[chosen_variable]
+        """Plot factor contributions to a chosen variable's variance with Varimax rotation."""
+        rotator = Rotator(method='varimax')
+        rotated_loadings = rotator.fit_transform(self.model.pca.components_.T)
+        factor_variances = np.var(self.model.factors, axis=0)
+        contributions = (rotated_loadings[chosen_variable] ** 2) * factor_variances
+        total_variance = np.sum(contributions)
+        contribution_pct = (contributions / total_variance) * 100 if total_variance > 0 else np.zeros_like(
+            contributions)
 
         plt.figure(figsize=(10, 6))
-        plt.bar(range(1, self.model.q + 1), variable_loadings, color='skyblue')
-        plt.xlabel('Factor', fontsize=12)
-        plt.ylabel('Loading', fontsize=12)
-        plt.title(f'Factor Contributions to {variable_name}', fontsize=14)
-        plt.xticks(range(1, self.model.q + 1), [f'Factor {i}' for i in range(1, self.model.q + 1)])
+        plt.bar(range(self.model.q), contribution_pct, color='skyblue', edgecolor='black')
+        plt.xlabel('Factors', fontsize=12)
+        plt.ylabel('Contribution to Variance (%)', fontsize=12)
+        plt.title(f'Factor Contributions to {self.model.df.columns[chosen_variable]} Variance (Varimax)', fontsize=14)
+        plt.xticks(range(self.model.q), [f'Factor {i + 1}' for i in range(self.model.q)])
         plt.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
         plt.show()
@@ -307,15 +311,195 @@ class ModelEvaluator:
         plt.tight_layout()
         plt.show()
 
-    def plot_variance_explained_per_variable(self):
-        """Plot a stacked bar chart of the percentage of variance explained by each factor for each variable."""
-        total_variance = np.var(self.model.X_train, axis=0)
-        factor_variances = np.var(self.model.factors, axis=0)
-        loadings_squared = self.model.loadings ** 2
-        factor_contributions = loadings_squared * factor_variances
-        variance_explained_pct = (factor_contributions.T / total_variance) * 100
-        variance_explained_pct = np.clip(variance_explained_pct, 0, 100)
+    def plot_common_component_r2(self, true_values, common_components):
+        """
+        Plot a bar graph of R² for each variable, showing variance explained by the common component.
 
+        Parameters:
+        - true_values: np.array, actual data (T, N)
+        - common_components: np.array, common components from the model (T, N)
+        """
+        if true_values.shape != common_components.shape:
+            raise ValueError("Shape mismatch between true_values and common_components.")
+
+        # Initialize arrays
+        n_vars = true_values.shape[1]
+        r2_values = np.zeros(n_vars)
+
+        # Calculate R² for each variable
+        for i in range(n_vars):
+            true_var = true_values[:, i]
+            common_var = common_components[:, i]
+            ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
+            ss_res = np.sum((true_var - common_var) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            r2_values[i] = r2 * 100  # Convert to percentage
+
+        # Plotting
+        plt.figure(figsize=(40, 20))
+        plt.bar(self.model.df.columns, r2_values, color='teal', edgecolor='black')
+        plt.xlabel('Variables', fontsize=20)
+        plt.ylabel('Explained Variance % (R²)', fontsize=20)
+        plt.title('Variance Explained by Common Component per Variable', fontsize=30)
+        plt.xticks(rotation=90, fontsize=15)
+        plt.ylim(0, 100)
+        plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        plt.show()
+
+    def plot_common_component_r2_with_varimax(self, true_values, common_components):
+        """
+        Plot a stacked bar graph of R² for each variable, showing variance explained by each factor
+        within the common component, comparing original PCA and Varimax rotation. Ensures total R²
+        (bar heights) are identical, with only factor contributions differing.
+
+        Parameters:
+        - true_values: np.array, actual data (T, N)
+        - common_components: np.array, common components from the model (T, N)
+        """
+        if true_values.shape != common_components.shape:
+            raise ValueError("Shape mismatch between true_values and common_components.")
+        if self.model.pca is None:
+            raise ValueError("PCA model not fitted. Run fit_static_model() first.")
+
+        # Initialize parameters
+        n_vars = true_values.shape[1]
+        n_factors = self.model.q
+        r2_values = np.zeros(n_vars)  # Shared R² for both original and Varimax
+        factor_contributions_original = np.zeros((n_factors, n_vars))
+        factor_contributions_varimax = np.zeros((n_factors, n_vars))
+
+        # Calculate total R² using original common component (same for both)
+        for i in range(n_vars):
+            true_var = true_values[:, i]
+            common_var = common_components[:, i]
+            ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
+            ss_res = np.sum((true_var - common_var) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            r2_values[i] = r2 * 100  # Convert to percentage
+
+        # Get original loadings and factors
+        loadings = self.model.pca.components_.T  # Shape: (n_features, n_factors)
+        factors = self.model.factors  # Shape: (n_samples, n_factors)
+
+        # Original PCA: Compute factor contributions
+        factor_variances = np.var(factors, axis=0)  # Shape: (n_factors,)
+        loadings_squared = loadings ** 2  # Shape: (n_features, n_factors)
+        total_variance = np.var(true_values, axis=0)  # Shape: (n_features,)
+        contributions_sum = np.zeros(n_vars)
+        for j in range(n_factors):
+            # Variance explained by factor j for each variable
+            factor_contributions_original[j] = (loadings_squared[:, j] * factor_variances[j]) / total_variance * 100
+            contributions_sum += factor_contributions_original[j]
+        # Normalize contributions to match total R²
+        for j in range(n_factors):
+            factor_contributions_original[j] *= r2_values / contributions_sum
+
+        # Varimax rotation
+        rotator = Rotator(method='varimax')
+        rotated_loadings = rotator.fit_transform(loadings)  # Shape: (n_features, n_factors)
+        # Compute rotated factors: rotated_factors = X_train @ rotated_loadings
+        rotated_factors = self.model.X_train @ rotated_loadings  # Shape: (n_samples, n_factors)
+        rotated_factor_variances = np.var(rotated_factors, axis=0)  # Shape: (n_factors,)
+        rotated_loadings_squared = rotated_loadings ** 2  # Shape: (n_features, n_factors)
+        contributions_sum = np.zeros(n_vars)
+        for j in range(n_factors):
+            # Variance explained by factor j for each variable
+            factor_contributions_varimax[j] = (rotated_loadings_squared[:, j] * rotated_factor_variances[
+                j]) / total_variance * 100
+            contributions_sum += factor_contributions_varimax[j]
+        # Normalize contributions to match total R²
+        for j in range(n_factors):
+            factor_contributions_varimax[j] *= r2_values / contributions_sum
+
+        # Verify Varimax common component (for debugging)
+        common_varimax = rotated_factors @ rotated_loadings.T  # Shape: (n_samples, n_features)
+        r2_varimax_check = np.zeros(n_vars)
+        for i in range(n_vars):
+            true_var = true_values[:, i]
+            common_var = common_varimax[:, i]
+            ss_tot = np.sum((true_var - np.mean(true_var)) ** 2)
+            ss_res = np.sum((true_var - common_var) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
+            r2_varimax_check[i] = r2 * 100
+        max_diff = np.max(np.abs(r2_values - r2_varimax_check))
+        print(f"Maximum difference in R² between original and Varimax: {max_diff:.6f}%")
+
+        # Plotting
+        plt.figure(figsize=(16, 8))
+        x = np.arange(n_vars)
+        width = 0.35  # Width of bars
+        colors = plt.cm.tab10(np.linspace(0, 1, n_factors))  # Distinct colors for factors
+
+        # Original PCA: Stacked bars
+        bottom_original = np.zeros(n_vars)
+        for j in range(n_factors):
+            plt.bar(x - width / 2, factor_contributions_original[j], width, bottom=bottom_original,
+                    color=colors[j], edgecolor='black', label=f'Factor {j + 1} (Original)' if j == 0 else "")
+            bottom_original += factor_contributions_original[j]
+
+        # Varimax: Stacked bars
+        bottom_varimax = np.zeros(n_vars)
+        for j in range(n_factors):
+            plt.bar(x + width / 2, factor_contributions_varimax[j], width, bottom=bottom_varimax,
+                    color=colors[j], edgecolor='black', alpha=0.7,
+                    label=f'Factor {j + 1} (Varimax)' if j == 0 else "")
+            bottom_varimax += factor_contributions_varimax[j]
+
+        plt.xlabel('Variables', fontsize=12)
+        plt.ylabel('Variance Explained (R², %)', fontsize=12)
+        plt.title('Variance Explained per Variable by Factor (Original PCA vs Varimax)', fontsize=14)
+        plt.xticks(x, self.model.df.columns, rotation=90, fontsize=8)
+        plt.ylim(0, 100)
+        plt.grid(True, axis='y', linestyle='--', alpha=0.5)
+        # Custom legend to show factor colors once
+        legend_labels = [f'Factor {j + 1}' for j in range(n_factors)]
+        legend_handles = [plt.Rectangle((0, 0), 1, 1, color=colors[j]) for j in range(n_factors)]
+        plt.legend(legend_handles, legend_labels, title='Factors', fontsize=10, loc='upper left', bbox_to_anchor=(1, 1))
+        plt.tight_layout()
+        plt.show()
+
+    def plot_variance_explained_per_variable(self, varimax=True):
+        """
+        Plot variance explained by each factor per variable, with optional Varimax rotation.
+
+        Parameters:
+        - varimax: bool, whether to apply Varimax rotation (default: True)
+        """
+        if self.model.pca is None:
+            raise ValueError("Run fit_static_model() first to fit the PCA model.")
+
+        # Get PCA loadings
+        loadings = self.model.pca.components_.T  # Shape: (n_features, n_factors)
+        factors = self.model.factors  # Shape: (n_samples, n_factors)
+
+        if varimax:
+            # Apply Varimax rotation
+            rotator = Rotator(method='varimax')
+            loadings = rotator.fit_transform(loadings)
+            # Compute rotated factors (X_train = factors @ loadings.T + error)
+            # Since Varimax is orthogonal, rotated_factors = X_train @ loadings
+            rotated_factors = self.model.X_train @ loadings
+        else:
+            rotated_factors = factors
+
+        # Calculate variance explained
+        total_variance = np.var(self.model.X_train, axis=0)  # Variance of each variable
+        factor_variances = np.var(rotated_factors, axis=0)  # Variance of each (rotated) factor
+        loadings_squared = loadings ** 2
+
+        # Compute variance explained by each factor for each variable
+        factor_contributions = loadings_squared * factor_variances  # Shape: (n_features, n_factors)
+        variance_explained_pct = (factor_contributions.T / total_variance) * 100  # Shape: (n_factors, n_features)
+
+        # Ensure total variance explained does not exceed 100%
+        total_explained = np.sum(variance_explained_pct, axis=0)
+        if np.any(total_explained > 100):
+            # Normalize to the PCA explained variance ratio
+            explained_variance_ratio = np.sum(self.model.pca.explained_variance_ratio_)
+            variance_explained_pct *= (100 * explained_variance_ratio) / total_explained
+
+        # Plotting
         plt.figure(figsize=(40, 20))
         bottom = np.zeros(self.model.n)
         colors = plt.cm.tab10(np.linspace(0, 1, self.model.q))
@@ -327,7 +511,7 @@ class ModelEvaluator:
 
         plt.xlabel('Variables', fontsize=12)
         plt.ylabel('Percentage of Variance Explained (%)', fontsize=12)
-        plt.title('Variance Explained by Each Factor per Variable', fontsize=16)
+        plt.title(f'Variance Explained by Each hampered per Variable {"(Varimax)" if varimax else ""}', fontsize=16)
         plt.xticks(rotation=90, fontsize=8)
         plt.legend(title='Factors', loc='upper left', bbox_to_anchor=(1, 1), fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.5, axis='y')
