@@ -136,5 +136,22 @@ def main():
     print("\nPreprocessing complete!")
 
 
+def count_variables(data_dict, date_col):
+    """Counts the number of variables (columns excluding date_col) in each country's dataset"""
+    print("\nVariable Count per Country:")
+    variable_counts = {}
+    for country, df in data_dict.items():
+        # Exclude the date column from the variable count
+        num_variables = df.shape[1] - (1 if date_col in df.columns else 0)
+        variable_counts[country] = num_variables
+        print(f"{country}: {num_variables} variables")
+
+    # Summary statistics
+    print(f"\nSummary of Variable Counts:")
+    print(f"Total datasets: {len(variable_counts)}")
+    print(f"Minimum variables: {min(variable_counts.values())}")
+    print(f"Maximum variables: {max(variable_counts.values())}")
+    print(f"Average variables: {sum(variable_counts.values()) / len(variable_counts):.2f}")
+
 if __name__ == "__main__":
     main()
